@@ -1,0 +1,4 @@
+images:
+  - name: oc-substrate
+    context: .
+    dockerfile: Dockerfile
