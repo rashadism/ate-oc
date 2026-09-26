@@ -2,6 +2,7 @@ package ateclient
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,10 +19,14 @@ type RetryPolicy struct {
 var defaultRetry = RetryPolicy{Attempts: 5, Initial: 100 * time.Millisecond, Max: 2 * time.Second}
 
 // RetryAborted retries calls that fail with codes.Aborted, which ateapi returns
-// when a concurrent writer holds the object's lease.
+// when another operation holds the object's lease. Update calls are not
+// retried: there Aborted means a uid/version conflict and the caller must re-read.
 func RetryAborted(p RetryPolicy) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn,
 		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		if strings.Contains(method, "/Update") {
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}
 		delay := p.Initial
 		var err error
 		for attempt := 1; ; attempt++ {
