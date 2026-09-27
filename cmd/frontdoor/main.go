@@ -38,7 +38,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	c, err := cache.New(ctrl.GetConfigOrDie(), cache.Options{
+	cfg := ctrl.GetConfigOrDie()
+	c, err := cache.New(cfg, cache.Options{
 		Scheme:   scheme,
 		ByObject: map[client.Object]cache.ByObject{&corev1.Pod{}: {Transform: frontdoor.TrimPod}},
 	})
@@ -62,8 +63,12 @@ func main() {
 		fatal("cache sync", nil)
 	}
 
+	live, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		fatal("create client", err)
+	}
 	dir := &frontdoor.ClusterDirectory{
-		Reader: c, EgressNamespace: *egressNS, EgressLabels: map[string]string{"app": "atenet-egress"},
+		Reader: c, Live: live, EgressNamespace: *egressNS, EgressLabels: map[string]string{"app": "atenet-egress"},
 	}
 	proxy := &http.Server{
 		Addr: *addr,

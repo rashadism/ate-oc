@@ -20,6 +20,9 @@ const (
 // ClusterDirectory answers Directory lookups from informer caches.
 type ClusterDirectory struct {
 	Reader client.Reader
+	// Live, if set, answers caller lookups the cache misses: a pod that calls
+	// right after starting is often not in the informer cache yet.
+	Live client.Reader
 	// EgressNamespace and EgressLabels identify Substrate's egress gateway pods.
 	EgressNamespace string
 	EgressLabels    map[string]string
@@ -63,11 +66,21 @@ func TrimPod(o any) (any, error) {
 }
 
 func (d *ClusterDirectory) Caller(ip string) Caller {
+	if c := d.caller(d.Reader, ip); c.Kind != CallerUnknown || d.Live == nil {
+		return c
+	}
+	return d.caller(d.Live, ip)
+}
+
+func (d *ClusterDirectory) caller(r client.Reader, ip string) Caller {
 	var pods corev1.PodList
-	if err := d.Reader.List(context.Background(), &pods, client.MatchingFields{podIPIndex: ip}); err != nil {
+	if err := r.List(context.Background(), &pods, client.MatchingFields{podIPIndex: ip}); err != nil {
 		return Caller{}
 	}
 	for _, p := range pods.Items {
+		if p.Spec.HostNetwork {
+			continue
+		}
 		if p.Status.Phase != corev1.PodRunning {
 			continue
 		}

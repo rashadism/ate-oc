@@ -86,4 +86,13 @@ func TestClusterDirectory(t *testing.T) {
 	if d.NamespaceLabels(cellA)[LabelNamespace] != "acme" || d.NamespaceLabels("nope") != nil {
 		t.Fatal("namespace labels")
 	}
+
+	live := fake.NewClientBuilder().WithScheme(s).WithObjects(pod(cellB, "new", "10.1.0.9", nil, corev1.PodRunning)).
+		WithIndex(&corev1.Pod{}, podIPIndex, func(o client.Object) []string {
+			return []string{o.(*corev1.Pod).Status.PodIP}
+		}).Build()
+	d.Live = live
+	if got := d.Caller("10.1.0.9"); got.Kind != CallerPod || got.Namespace != cellB {
+		t.Fatalf("a pod the cache has not seen yet should resolve live, got %+v", got)
+	}
 }
