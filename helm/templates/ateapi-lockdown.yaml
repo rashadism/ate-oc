@@ -1,0 +1,23 @@
+{{- if .Values.ateapiLockdown.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oc-substrate-ateapi-lockdown
+  namespace: {{ .Values.ateSystemNamespace }}
+spec:
+  podSelector:
+    matchLabels: {app: ate-api-server}
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{port: 443, protocol: TCP}]
+      from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: {{- toYaml .Values.ateapiLockdown.substrateComponents | nindent 18 }}
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Release.Namespace }}}
+          podSelector:
+            matchLabels: {{- include "oc-substrate.operatorLabels" . | nindent 14 }}
+{{- end }}

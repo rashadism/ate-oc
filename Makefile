@@ -13,6 +13,7 @@ all: build
 generate: controller-gen
 	$(CONTROLLER_GEN) object paths="./api/..."
 	$(CONTROLLER_GEN) crd paths="./api/..." output:crd:artifacts:config=helm/crds
+	$(CONTROLLER_GEN) rbac:roleName=oc-substrate-operator paths="./internal/controller/..." output:rbac:artifacts:config=helm/templates
 
 .PHONY: unit-test
 unit-test:
@@ -33,7 +34,7 @@ docker-build:
 
 .PHONY: helm-template
 helm-template:
-	helm template oc-substrate helm --include-crds >/dev/null
+	helm template oc-substrate helm --include-crds --set storageLocation=s3://x >/dev/null
 
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)

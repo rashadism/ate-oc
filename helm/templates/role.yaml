@@ -1,0 +1,50 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oc-substrate-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ate.dev
+  resources:
+  - workerpools
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - substrate.openchoreo.dev
+  resources:
+  - actors
+  - actortemplates
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - substrate.openchoreo.dev
+  resources:
+  - actors/finalizers
+  - actortemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - substrate.openchoreo.dev
+  resources:
+  - actors/status
+  - actortemplates/status
+  verbs:
+  - get
+  - patch
+  - update

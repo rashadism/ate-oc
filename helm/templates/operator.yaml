@@ -1,0 +1,83 @@
+{{- if not .Values.storageLocation }}
+{{- fail "storageLocation is required" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oc-substrate-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "oc-substrate.operatorLabels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oc-substrate-operator
+subjects:
+  - kind: ServiceAccount
+    name: oc-substrate-operator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: oc-substrate-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oc-substrate-operator
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "oc-substrate.operatorLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "oc-substrate.operatorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "oc-substrate.operatorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: oc-substrate-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: operator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/operator]
+          args:
+            - --storage-location={{ .Values.storageLocation }}
+            - --ateapi-target={{ .Values.ateapi.target }}
+            - --ateapi-server-name={{ .Values.ateapi.serverName }}
+            - --ateapi-credential-bundle=/run/podidentity/credential-bundle.pem
+            - --ateapi-ca-file=/run/servicedns-ca/trust-bundle.pem
+          ports:
+            - {name: health, containerPort: 8081}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: podidentity, mountPath: /run/podidentity, readOnly: true}
+            - {name: servicedns-ca, mountPath: /run/servicedns-ca, readOnly: true}
+      volumes:
+        - name: podidentity
+          projected:
+            sources:
+              - podCertificate:
+                  signerName: podidentity.podcert.ate.dev/identity
+                  keyType: ECDSAP256
+                  credentialBundlePath: credential-bundle.pem
+        - name: servicedns-ca
+          projected:
+            sources:
+              - clusterTrustBundle:
+                  signerName: servicedns.podcert.ate.dev/identity
+                  labelSelector:
+                    matchLabels: {podcert.ate.dev/canarying: live}
+                  path: trust-bundle.pem

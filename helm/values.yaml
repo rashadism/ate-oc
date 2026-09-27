@@ -1,3 +1,24 @@
 image:
   repository: oc-substrate
   tag: dev
+  pullPolicy: IfNotPresent
+
+# Snapshot object-store prefix; each atespace gets a sub-path. Required.
+storageLocation: ""
+
+ateapi:
+  target: dns:///api.ate-system.svc:443
+  serverName: api.ate-system.svc
+
+# Namespace Substrate is installed in.
+ateSystemNamespace: ate-system
+
+# Restricts ateapi ingress to Substrate's own components and this operator.
+# ateapi authenticates mTLS peers but does not authorize them.
+ateapiLockdown:
+  enabled: true
+  substrateComponents: [atenet-router, atenet-egress, ate-controller, atelet]
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}
