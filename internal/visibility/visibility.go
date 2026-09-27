@@ -31,6 +31,23 @@ func Admits(policy *networkingv1.NetworkPolicy, callerNamespace string, callerNa
 	return false
 }
 
+// AdmitsCell reports whether policy admits a caller in callerNamespace on any
+// port. Substrate egress rules cannot express ports, so reachability is
+// decided per destination.
+func AdmitsCell(policy *networkingv1.NetworkPolicy, callerNamespace string, callerNamespaceLabels map[string]string) bool {
+	for _, rule := range policy.Spec.Ingress {
+		if len(rule.From) == 0 {
+			return true
+		}
+		for _, peer := range rule.From {
+			if peerAdmits(peer, policy.Namespace, callerNamespace, callerNamespaceLabels) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func portMatches(ports []networkingv1.NetworkPolicyPort, port int32) bool {
 	if len(ports) == 0 {
 		return true

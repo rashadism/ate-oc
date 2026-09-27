@@ -9,6 +9,7 @@ rules:
   resources:
   - configmaps
   - namespaces
+  - nodes
   - pods
   - secrets
   - services
@@ -47,6 +48,7 @@ rules:
   - networking.k8s.io
   resources:
   - networkpolicies
+  - servicecidrs
   verbs:
   - get
   - list

@@ -60,6 +60,11 @@ func TestAdmits(t *testing.T) {
 		})
 	}
 
+	if !AdmitsCell(&np, np.Namespace, nil) || !AdmitsCell(&np, "dp-acme-billing-dev-2", sameOrg) ||
+		AdmitsCell(&np, "dp-x-shop-dev-4", map[string]string{"openchoreo.dev/namespace": "x"}) {
+		t.Fatal("AdmitsCell disagrees with the policy")
+	}
+
 	deny := networkingv1.NetworkPolicy{}
 	deny.Namespace = np.Namespace
 	if Admits(&deny, np.Namespace, nil, 80) {

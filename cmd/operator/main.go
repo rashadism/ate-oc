@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"net/netip"
 	"os"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +40,8 @@ func main() {
 	var retentionTTL, orphanScanInterval time.Duration
 	var frontDoorNamespace, frontDoorSelector string
 	var frontDoorPort int
+	var egressInterval time.Duration
+	var clusterCIDRs string
 	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
@@ -54,6 +58,8 @@ func main() {
 	flag.StringVar(&frontDoorSelector, "frontdoor-selector", "app.kubernetes.io/name=oc-substrate-frontdoor",
 		"Label selector for the front door pods.")
 	flag.IntVar(&frontDoorPort, "frontdoor-port", 8080, "Front door proxy port.")
+	flag.DurationVar(&egressInterval, "egress-sync-interval", 5*time.Second, "How often actor egress is recomputed.")
+	flag.StringVar(&clusterCIDRs, "cluster-cidrs", "", "Extra pod/Service ranges, comma-separated.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -64,6 +70,18 @@ func main() {
 	if err != nil || frontDoorNamespace == "" {
 		setupLog.Error(err, "--frontdoor-namespace and a valid --frontdoor-selector are required")
 		os.Exit(1)
+	}
+	var extraRanges []netip.Prefix
+	for _, c := range strings.Split(clusterCIDRs, ",") {
+		if c = strings.TrimSpace(c); c == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			setupLog.Error(err, "invalid --cluster-cidrs")
+			os.Exit(1)
+		}
+		extraRanges = append(extraRanges, p.Masked())
 	}
 	if storageLocation == "" {
 		setupLog.Error(nil, "--storage-location is required")
@@ -83,7 +101,7 @@ func main() {
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "oc-substrate.substrate.openchoreo.dev",
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
-			&corev1.Pod{}: {Namespaces: map[string]cache.Config{frontDoorNamespace: {}}},
+			&corev1.Pod{}: {Transform: controller.TrimPod},
 		}},
 	})
 	if err != nil {
@@ -119,6 +137,12 @@ func main() {
 	}
 	if err := endpointsR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Endpoints")
+		os.Exit(1)
+	}
+	if err := mgr.Add(&controller.EgressSyncer{
+		Client: mgr.GetClient(), Ate: ateClient, Interval: egressInterval, ExtraClusterRanges: extraRanges,
+	}); err != nil {
+		setupLog.Error(err, "unable to add egress syncer")
 		os.Exit(1)
 	}
 	if err := mgr.Add(&controller.OrphanScanner{

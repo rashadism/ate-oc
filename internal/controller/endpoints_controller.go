@@ -110,6 +110,22 @@ func podReady(p *corev1.Pod) bool {
 	return false
 }
 
+// TrimPod keeps the pod fields the operator reads, to bound the cluster-wide
+// pod cache: labels and addresses for egress, readiness for front door pods.
+func TrimPod(o any) (any, error) {
+	p, ok := o.(*corev1.Pod)
+	if !ok {
+		return o, nil
+	}
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: p.Labels, UID: p.UID,
+			ResourceVersion: p.ResourceVersion, DeletionTimestamp: p.DeletionTimestamp},
+		Spec: corev1.PodSpec{HostNetwork: p.Spec.HostNetwork},
+		Status: corev1.PodStatus{Phase: p.Status.Phase, PodIP: p.Status.PodIP, PodIPs: p.Status.PodIPs,
+			Conditions: p.Status.Conditions},
+	}, nil
+}
+
 func actorServiceName(o client.Object) []string {
 	if s := o.(*substratev1alpha1.Actor).Spec.ServiceName; s != "" {
 		return []string{s}
