@@ -97,6 +97,11 @@ type Container struct {
 	// +optional
 	Env []EnvVar `json:"env,omitempty"`
 
+	// EnvFrom adds every key of a ConfigMap or Secret; Env entries win on conflict.
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	EnvFrom []EnvFromSource `json:"envFrom,omitempty"`
+
 	// +optional
 	WakeupProbe *WakeupProbe `json:"wakeupProbe,omitempty"`
 
@@ -104,7 +109,9 @@ type Container struct {
 	Capabilities []corev1.Capability `json:"capabilities,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="has(self.value) != has(self.valueFrom)",message="exactly one of value or valueFrom is required"
+// A variable with neither value nor valueFrom is set to the empty string, as
+// OpenChoreo omits empty values when it renders env.
+// +kubebuilder:validation:XValidation:rule="!(has(self.value) && has(self.valueFrom))",message="value and valueFrom are mutually exclusive"
 type EnvVar struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
@@ -122,6 +129,14 @@ type EnvVarSource struct {
 	SecretKeyRef *KeyRef `json:"secretKeyRef,omitempty"`
 	// +optional
 	ConfigMapKeyRef *KeyRef `json:"configMapKeyRef,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.secretRef) != has(self.configMapRef)",message="exactly one of secretRef or configMapRef is required"
+type EnvFromSource struct {
+	// +optional
+	SecretRef *LocalRef `json:"secretRef,omitempty"`
+	// +optional
+	ConfigMapRef *LocalRef `json:"configMapRef,omitempty"`
 }
 
 type KeyRef struct {

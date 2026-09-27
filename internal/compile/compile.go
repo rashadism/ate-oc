@@ -76,13 +76,11 @@ func Compile(ctx context.Context, r client.Reader, at *v1alpha1.ActorTemplate, o
 			Args:         c.Args,
 			VolumeMounts: mounts,
 		}
-		for _, e := range c.Env {
-			v, err := refs.value(ctx, e)
-			if err != nil {
-				return nil, fmt.Errorf("container %s env %s: %w", c.Name, e.Name, err)
-			}
-			pc.Env = append(pc.Env, &pb.EnvVar{Name: e.Name, Value: v})
+		env, err := refs.env(ctx, c)
+		if err != nil {
+			return nil, fmt.Errorf("container %s: %w", c.Name, err)
 		}
+		pc.Env = env
 		if p := c.WakeupProbe; p != nil {
 			pc.WakeupProbe = &pb.ContainerWakeupProbe{
 				HttpGet:        &pb.HTTPGetAction{Path: p.HTTPGet.Path, Port: p.HTTPGet.Port},
@@ -186,8 +184,68 @@ type resolver struct {
 	ns string
 }
 
+// env resolves a container's variables as the kubelet would: envFrom sources
+// in order, then env entries, a later definition of a name replacing an
+// earlier one in place. Keys from each source are taken in sorted order.
+func (res *resolver) env(ctx context.Context, c v1alpha1.Container) ([]*pb.EnvVar, error) {
+	var out []*pb.EnvVar
+	index := map[string]int{}
+	set := func(name, value string) {
+		if i, ok := index[name]; ok {
+			out[i].Value = value
+			return
+		}
+		index[name] = len(out)
+		out = append(out, &pb.EnvVar{Name: name, Value: value})
+	}
+	for _, src := range c.EnvFrom {
+		data, err := res.all(ctx, src)
+		if err != nil {
+			return nil, err
+		}
+		keys := make([]string, 0, len(data))
+		for k := range data {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			set(k, data[k])
+		}
+	}
+	for _, e := range c.Env {
+		v, err := res.value(ctx, e)
+		if err != nil {
+			return nil, fmt.Errorf("env %s: %w", e.Name, err)
+		}
+		set(e.Name, v)
+	}
+	return out, nil
+}
+
+func (res *resolver) all(ctx context.Context, src v1alpha1.EnvFromSource) (map[string]string, error) {
+	if src.SecretRef != nil {
+		var s corev1.Secret
+		if err := res.get(ctx, "Secret", src.SecretRef.Name, &s); err != nil {
+			return nil, err
+		}
+		out := make(map[string]string, len(s.Data))
+		for k, v := range s.Data {
+			out[k] = string(v)
+		}
+		return out, nil
+	}
+	var cm corev1.ConfigMap
+	if err := res.get(ctx, "ConfigMap", src.ConfigMapRef.Name, &cm); err != nil {
+		return nil, err
+	}
+	return cm.Data, nil
+}
+
 func (res *resolver) value(ctx context.Context, e v1alpha1.EnvVar) (string, error) {
-	if e.Value != nil {
+	if e.ValueFrom == nil {
+		if e.Value == nil {
+			return "", nil
+		}
 		return *e.Value, nil
 	}
 	if ref := e.ValueFrom.SecretKeyRef; ref != nil {

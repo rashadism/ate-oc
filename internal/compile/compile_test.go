@@ -180,6 +180,39 @@ func TestCompileHash(t *testing.T) {
 	}
 }
 
+func TestCompileEnvFrom(t *testing.T) {
+	at := baseTemplate()
+	at.Spec.Containers[0].EnvFrom = []v1alpha1.EnvFromSource{
+		{ConfigMapRef: &v1alpha1.LocalRef{Name: "app-env"}},
+		{SecretRef: &v1alpha1.LocalRef{Name: "app-secrets"}},
+	}
+	at.Spec.Containers[0].Env = append(at.Spec.Containers[0].Env,
+		v1alpha1.EnvVar{Name: "LEVEL", Value: ptr.To("debug")}, v1alpha1.EnvVar{Name: "EMPTY"})
+	objs := append(objects(),
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "app-env", Namespace: ns}, Data: map[string]string{"LEVEL": "info", "B": "2", "A": "1"}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "app-secrets", Namespace: ns}, Data: map[string][]byte{"TOKEN": []byte("t"), "A": []byte("secret")}},
+	)
+	res, err := compile(t, at, objs...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(res.Template.GetContainers()[0].GetEnv()))
+	for _, e := range res.Template.GetContainers()[0].GetEnv() {
+		got = append(got, e.GetName()+"="+e.GetValue())
+	}
+	want := []string{"A=secret", "B=2", "LEVEL=debug", "TOKEN=t", "PLAIN=v", "SECRET=s3cret", "CONF=info", "EMPTY="}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("env = %v, want %v", got, want)
+	}
+
+	missing := baseTemplate()
+	missing.Spec.Containers[0].EnvFrom = []v1alpha1.EnvFromSource{{SecretRef: &v1alpha1.LocalRef{Name: "nope"}}}
+	var refErr *RefError
+	if _, err := compile(t, missing, objects()...); !errors.As(err, &refErr) {
+		t.Fatalf("missing envFrom source should be a RefError, got %v", err)
+	}
+}
+
 func TestCompileSandboxConfigOverride(t *testing.T) {
 	base, _ := compile(t, baseTemplate(), objects()...)
 	at := baseTemplate()

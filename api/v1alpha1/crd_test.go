@@ -107,12 +107,17 @@ func TestActorTemplateSchema(t *testing.T) {
 		{
 			name:    "value and valueFrom",
 			obj:     strings.Replace(validTemplate, `{name: B, valueFrom`, `{name: B, value: x, valueFrom`, 1),
-			wantErr: "exactly one of value or valueFrom",
+			wantErr: "mutually exclusive",
+		},
+		{name: "empty env value", obj: strings.Replace(validTemplate, `{name: A, value: "1"}`, `{name: A}`, 1)},
+		{
+			name: "envFrom",
+			obj:  strings.Replace(validTemplate, `      env:`, "      envFrom:\n        - {configMapRef: {name: c}}\n        - {secretRef: {name: s}}\n      env:", 1),
 		},
 		{
-			name:    "neither value nor valueFrom",
-			obj:     strings.Replace(validTemplate, `{name: A, value: "1"}`, `{name: A}`, 1),
-			wantErr: "exactly one of value or valueFrom",
+			name:    "envFrom with both refs",
+			obj:     strings.Replace(validTemplate, `      env:`, "      envFrom:\n        - {configMapRef: {name: c}, secretRef: {name: s}}\n      env:", 1),
+			wantErr: "exactly one of secretRef or configMapRef",
 		},
 		{
 			name:    "both key refs",

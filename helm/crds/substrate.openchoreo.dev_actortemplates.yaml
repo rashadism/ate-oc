@@ -70,6 +70,9 @@ spec:
                       type: array
                     env:
                       items:
+                        description: |-
+                          A variable with neither value nor valueFrom is set to the empty string, as
+                          OpenChoreo omits empty values when it renders env.
                         properties:
                           name:
                             minLength: 1
@@ -111,13 +114,40 @@ spec:
                         - name
                         type: object
                         x-kubernetes-validations:
-                        - message: exactly one of value or valueFrom is required
-                          rule: has(self.value) != has(self.valueFrom)
+                        - message: value and valueFrom are mutually exclusive
+                          rule: '!(has(self.value) && has(self.valueFrom))'
                       maxItems: 32
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
                       x-kubernetes-list-type: map
+                    envFrom:
+                      description: EnvFrom adds every key of a ConfigMap or Secret;
+                        Env entries win on conflict.
+                      items:
+                        properties:
+                          configMapRef:
+                            properties:
+                              name:
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          secretRef:
+                            properties:
+                              name:
+                                minLength: 1
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of secretRef or configMapRef is required
+                          rule: has(self.secretRef) != has(self.configMapRef)
+                      maxItems: 16
+                      type: array
                     image:
                       minLength: 1
                       type: string

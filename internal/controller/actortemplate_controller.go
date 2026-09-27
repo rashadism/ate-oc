@@ -318,6 +318,14 @@ func setCond(at *substratev1alpha1.ActorTemplate, t string, ok bool, reason, msg
 func refNames(at *substratev1alpha1.ActorTemplate, secret bool) []string {
 	var out []string
 	for _, c := range at.Spec.Containers {
+		for _, src := range c.EnvFrom {
+			if secret && src.SecretRef != nil {
+				out = append(out, src.SecretRef.Name)
+			}
+			if !secret && src.ConfigMapRef != nil {
+				out = append(out, src.ConfigMapRef.Name)
+			}
+		}
 		for _, e := range c.Env {
 			if e.ValueFrom == nil {
 				continue
