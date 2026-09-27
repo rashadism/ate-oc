@@ -17,6 +17,11 @@ const (
 type ActorSpec struct {
 	TemplateRef LocalRef `json:"templateRef"`
 
+	// ServiceName is the selector-less Service that fronts this actor; the
+	// operator points its EndpointSlice at the front door.
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
 	// +kubebuilder:default="5m"
 	// +optional
 	IdleTimeout *metav1.Duration `json:"idleTimeout,omitempty"`
@@ -45,11 +50,25 @@ type LocalRef struct {
 type Endpoint struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
+	// Port is the Service port.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	Port int32 `json:"port"`
+	// TargetPort is the port the actor listens on; defaults to Port.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	TargetPort int32 `json:"targetPort,omitempty"`
+	// Visibility lists scopes beyond project, which always applies.
 	// +optional
 	Visibility []EndpointVisibility `json:"visibility,omitempty"`
+}
+
+func (e Endpoint) ActorPort() int32 {
+	if e.TargetPort != 0 {
+		return e.TargetPort
+	}
+	return e.Port
 }
 
 type Dependencies struct {
