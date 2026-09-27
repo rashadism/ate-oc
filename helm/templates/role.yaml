@@ -8,7 +8,9 @@ rules:
   - ""
   resources:
   - configmaps
+  - pods
   - secrets
+  - services
   verbs:
   - get
   - list
@@ -20,6 +22,18 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - events.k8s.io
