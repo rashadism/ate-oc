@@ -200,6 +200,33 @@ func TestDeleteRetainsAndReattaches(t *testing.T) {
 	}
 }
 
+// Re-attach releases the entry in two writes; the retained-state controller
+// may run in between and must not re-arm the finalizer and purge.
+func TestReleaseSurvivesInterleavedRetainedReconcile(t *testing.T) {
+	e := deployed(t)
+	name := id.ActorName()
+	if err := e.actors.Delete(context.Background(), e.actorCR()); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileActor()
+	entryName := substratev1alpha1.RetainedActorName(ns, name)
+	e.reconcileRetained(entryName)
+
+	ra := e.retainedEntry(entryName)
+	metav1.SetMetaDataAnnotation(&ra.ObjectMeta, substratev1alpha1.ReleasedAnnotation, "true")
+	ra.Finalizers = nil
+	if err := e.actors.Update(context.Background(), ra); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileRetained(entryName)
+	if e.retainedEntry(entryName) != nil {
+		t.Fatal("a released entry should be dropped")
+	}
+	if e.substrateActor(name) == nil {
+		t.Fatal("releasing must never purge the actor")
+	}
+}
+
 func TestRecreatedComponentGetsFreshActor(t *testing.T) {
 	e := deployed(t)
 	old := id.ActorName()

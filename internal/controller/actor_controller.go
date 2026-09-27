@@ -192,9 +192,13 @@ func (r *ActorReconciler) reattach(ctx context.Context, act *substratev1alpha1.A
 	return nil
 }
 
-// releaseRetained drops an entry without purging: the finalizer goes first.
+// releaseRetained drops an entry without purging. Marking it released in the
+// same write that removes the finalizer stops the retained-state controller
+// from re-arming the finalizer before the delete lands.
 func releaseRetained(ctx context.Context, c client.Client, ra *substratev1alpha1.RetainedActor) error {
-	if controllerutil.RemoveFinalizer(ra, Finalizer) {
+	if ra.Annotations[substratev1alpha1.ReleasedAnnotation] != "true" || controllerutil.ContainsFinalizer(ra, Finalizer) {
+		metav1.SetMetaDataAnnotation(&ra.ObjectMeta, substratev1alpha1.ReleasedAnnotation, "true")
+		controllerutil.RemoveFinalizer(ra, Finalizer)
 		if err := c.Update(ctx, ra); err != nil {
 			return client.IgnoreNotFound(err)
 		}

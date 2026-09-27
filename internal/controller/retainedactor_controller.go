@@ -42,6 +42,9 @@ func (r *RetainedActorReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, req.NamespacedName, &ra); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	if ra.Annotations[substratev1alpha1.ReleasedAnnotation] == "true" {
+		return ctrl.Result{}, releaseRetained(ctx, r.Client, &ra)
+	}
 	if !ra.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.purge(ctx, &ra)
 	}

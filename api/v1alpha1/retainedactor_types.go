@@ -5,6 +5,9 @@ import (
 )
 
 const (
+	// ReleasedAnnotation marks an entry being dropped without a purge.
+	ReleasedAnnotation = "substrate.openchoreo.dev/released"
+
 	RetainedPendingSuspend = "PendingSuspend"
 	RetainedSuspended      = "Suspended"
 )
@@ -41,7 +44,7 @@ type RetainedActorStatus struct {
 // +kubebuilder:printcolumn:name="Atespace",type=string,JSONPath=`.spec.atespace`
 // +kubebuilder:printcolumn:name="Actor",type=string,JSONPath=`.spec.actorName`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
-// +kubebuilder:printcolumn:name="Expires",type=date,JSONPath=`.spec.expiresAt`
+// +kubebuilder:printcolumn:name="Expires",type=string,JSONPath=`.spec.expiresAt`
 
 type RetainedActor struct {
 	metav1.TypeMeta   `json:",inline"`
