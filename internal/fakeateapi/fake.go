@@ -6,6 +6,7 @@ package fakeateapi
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,12 +36,16 @@ type Server struct {
 	sandboxes  map[string]pb.SandboxClass
 	failNext   map[string]codes.Code
 	autoGolden bool
+	requirePin bool
 }
 
 type Option func(*Server)
 
 // WithAutoGolden marks every new template's golden snapshot ready on creation.
 func WithAutoGolden() Option { return func(s *Server) { s.autoGolden = true } }
+
+// WithPinnedImages rejects unpinned images, as the real server does.
+func WithPinnedImages() Option { return func(s *Server) { s.requirePin = true } }
 
 // WithSandboxConfig registers a SandboxConfig; templates must reference one.
 func WithSandboxConfig(name string, class pb.SandboxClass) Option {
@@ -236,6 +241,14 @@ func (s *Server) CreateActorTemplate(_ context.Context, req *pb.CreateActorTempl
 	k := key{in.GetMetadata().GetAtespace(), in.GetMetadata().GetName()}
 	if k.atespace == "" || k.name == "" {
 		return nil, status.Error(codes.InvalidArgument, "metadata.atespace and metadata.name are required")
+	}
+	if s.requirePin {
+		for i, c := range in.GetContainers() {
+			if !strings.Contains(c.GetImage(), "@sha256:") {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"actor_template.containers[%d].image: Invalid value: %q: must be pinned by digest", i, c.GetImage())
+			}
+		}
 	}
 	sc := in.GetSandboxConfig()
 	if class, ok := s.sandboxes[sc.GetConfigName()]; !ok || class != sc.GetSandboxClass() {
