@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicies.enabled }}
+# Only the front door reaches the router: it is the only place OpenChoreo's
+# visibility rules are applied to actor-bound traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oc-substrate-router-lockdown
+  namespace: {{ .Values.ateSystemNamespace }}
+spec:
+  podSelector:
+    matchLabels: {app: atenet-router}
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{port: 8080, protocol: TCP}, {port: 8081, protocol: TCP}]
+      from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Release.Namespace }}}
+          podSelector:
+            matchLabels: {{- include "oc-substrate.frontdoorLabels" . | nindent 14 }}
+---
+# Callers the front door may serve; it applies the fine-grained rules itself.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oc-substrate-frontdoor
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels: {{- include "oc-substrate.frontdoorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{port: {{ .Values.frontdoor.port }}, protocol: TCP}]
+      from:
+        - namespaceSelector:
+            matchExpressions: [{key: openchoreo.dev/environment, operator: Exists}]
+        - namespaceSelector: {}
+          podSelector:
+            matchExpressions: [{key: openchoreo.dev/system-component, operator: Exists}]
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.ateSystemNamespace }}}
+          podSelector:
+            matchLabels: {app: atenet-egress}
+    - ports: [{port: 8081, protocol: TCP}]
+{{- end }}

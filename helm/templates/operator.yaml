@@ -51,6 +51,10 @@ spec:
             - --ateapi-server-name={{ .Values.ateapi.serverName }}
             - --ateapi-credential-bundle=/run/podidentity/credential-bundle.pem
             - --ateapi-ca-file=/run/servicedns-ca/trust-bundle.pem
+            - --frontdoor-port={{ .Values.frontdoor.port }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
           ports:
             - {name: health, containerPort: 8081}
           livenessProbe:

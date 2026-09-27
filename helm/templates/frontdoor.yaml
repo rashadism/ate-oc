@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oc-substrate-frontdoor
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "oc-substrate.frontdoorLabels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: oc-substrate-frontdoor
+rules:
+  - apiGroups: [""]
+    resources: [pods, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [substrate.openchoreo.dev]
+    resources: [actors]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: oc-substrate-frontdoor
+subjects:
+  - kind: ServiceAccount
+    name: oc-substrate-frontdoor
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: oc-substrate-frontdoor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oc-substrate-frontdoor
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "oc-substrate.frontdoorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontdoor.replicas }}
+  selector:
+    matchLabels: {{- include "oc-substrate.frontdoorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "oc-substrate.frontdoorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: oc-substrate-frontdoor
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: frontdoor
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/frontdoor]
+          args:
+            - --listen-address=:{{ .Values.frontdoor.port }}
+            - --router-http=atenet-router.{{ .Values.ateSystemNamespace }}.svc:80
+            - --router-connect=atenet-router.{{ .Values.ateSystemNamespace }}.svc:8081
+            - --egress-namespace={{ .Values.ateSystemNamespace }}
+          ports:
+            - {name: proxy, containerPort: {{ .Values.frontdoor.port }}}
+            - {name: health, containerPort: 8081}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          resources: {{- toYaml .Values.frontdoor.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
