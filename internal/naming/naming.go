@@ -38,5 +38,9 @@ func (id Identity) ActorName() string {
 
 // TemplateRevisionName names an immutable Substrate ActorTemplate for one spec hash.
 func (id Identity) TemplateRevisionName(specHash string) string {
-	return "t-" + id.hash10() + "-" + specHash[:8]
+	return id.TemplateRevisionPrefix() + specHash[:8]
+}
+
+func (id Identity) TemplateRevisionPrefix() string {
+	return "t-" + id.hash10() + "-"
 }

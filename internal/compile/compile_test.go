@@ -180,6 +180,20 @@ func TestCompileHash(t *testing.T) {
 	}
 }
 
+func TestCompileSandboxConfigOverride(t *testing.T) {
+	base, _ := compile(t, baseTemplate(), objects()...)
+	at := baseTemplate()
+	at.Spec.SandboxConfigName = "gvisor-v2"
+	res, err := Compile(context.Background(), reader(objects()...), at,
+		Options{StorageLocation: "s3://snap/dp-cell", SandboxConfigName: "gvisor-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Template.GetSandboxConfig().GetConfigName() != "gvisor-v1" || res.Hash != base.Hash {
+		t.Fatalf("override not applied: %v", res.Template.GetSandboxConfig())
+	}
+}
+
 func TestCompileErrors(t *testing.T) {
 	tests := []struct {
 		name    string

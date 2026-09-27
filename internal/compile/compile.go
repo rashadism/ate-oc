@@ -32,6 +32,9 @@ func (e *RefError) Error() string { return e.msg }
 type Options struct {
 	// StorageLocation is the object-store prefix for this actor's snapshots.
 	StorageLocation string
+	// SandboxConfigName overrides spec.sandboxConfigName, pinning an existing
+	// actor to the runtime its snapshots were taken with.
+	SandboxConfigName string
 }
 
 type Result struct {
@@ -102,7 +105,7 @@ func Compile(ctx context.Context, r client.Reader, at *v1alpha1.ActorTemplate, o
 		Containers:     containers,
 		Volumes:        volumes,
 		SnapshotConfig: snapshot(spec.Snapshot, opts.StorageLocation),
-		SandboxConfig:  &pb.SandboxConfig{SandboxClass: class(spec.SandboxClass), ConfigName: spec.SandboxConfigName},
+		SandboxConfig:  &pb.SandboxConfig{SandboxClass: class(spec.SandboxClass), ConfigName: sandboxConfigName(spec, opts)},
 		Resources:      limits(spec.Resources),
 	}
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(t)
@@ -113,6 +116,13 @@ func Compile(ctx context.Context, r client.Reader, at *v1alpha1.ActorTemplate, o
 	hash := hex.EncodeToString(sum[:])
 	t.Metadata.Name = id.TemplateRevisionName(hash)
 	return &Result{Template: t, Hash: hash}, nil
+}
+
+func sandboxConfigName(spec v1alpha1.ActorTemplateSpec, opts Options) string {
+	if opts.SandboxConfigName != "" {
+		return opts.SandboxConfigName
+	}
+	return spec.SandboxConfigName
 }
 
 func selector(spec v1alpha1.ActorTemplateSpec) (*pb.Selector, error) {
