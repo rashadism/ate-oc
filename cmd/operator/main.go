@@ -41,7 +41,7 @@ func main() {
 	var frontDoorNamespace, frontDoorSelector string
 	var frontDoorPort int
 	var egressInterval time.Duration
-	var clusterCIDRs, blockedCIDRs string
+	var clusterCIDRs, blockedCIDRs, egressNamespace string
 	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
@@ -61,6 +61,7 @@ func main() {
 	flag.DurationVar(&egressInterval, "egress-sync-interval", 5*time.Second, "How often actor egress is recomputed.")
 	flag.StringVar(&clusterCIDRs, "cluster-cidrs", "", "Extra pod/Service ranges, comma-separated.")
 	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "", "Ranges actors may never reach, comma-separated.")
+	flag.StringVar(&egressNamespace, "egress-namespace", "ate-system", "Namespace of Substrate's egress gateway.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -136,6 +137,13 @@ func main() {
 	}
 	if err := endpointsR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Endpoints")
+		os.Exit(1)
+	}
+	cellR := &controller.CellPolicyReconciler{
+		Client: mgr.GetClient(), EgressNamespace: egressNamespace, EgressLabels: map[string]string{"app": "atenet-egress"},
+	}
+	if err := cellR.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "CellPolicy")
 		os.Exit(1)
 	}
 	if err := mgr.Add(&controller.EgressSyncer{

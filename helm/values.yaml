@@ -46,3 +46,17 @@ egress:
 # Router lockdown and front door ingress.
 networkPolicies:
   enabled: true
+
+openchoreo:
+  # The data plane cluster-agent that applies rendered resources.
+  clusterAgent:
+    namespace: openchoreo-data-plane
+    serviceAccount: cluster-agent-dataplane
+  # The substrate-service ClusterComponentType, a control plane resource;
+  # set enabled to false on a data-plane-only install.
+  componentType:
+    enabled: true
+    sandboxClass: gvisor
+    sandboxConfigName: gvisor-default
+    # Labels of the WorkerPool actors run on; empty lets Substrate choose.
+    workerSelector: {}

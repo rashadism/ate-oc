@@ -53,6 +53,7 @@ spec:
             - --ateapi-ca-file=/run/servicedns-ca/trust-bundle.pem
             - --frontdoor-port={{ .Values.frontdoor.port }}
             - --blocked-cidrs={{ join "," .Values.egress.blockedCIDRs }}
+            - --egress-namespace={{ .Values.ateSystemNamespace }}
           env:
             - name: POD_NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}

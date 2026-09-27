@@ -1,0 +1,268 @@
+{{- if .Values.openchoreo.componentType.enabled }}
+{{- $ct := .Values.openchoreo.componentType }}
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterComponentType
+metadata:
+  name: substrate-service
+  annotations:
+    openchoreo.dev/display-name: "Substrate Service"
+    openchoreo.dev/description: "A request-serving component that runs as a snapshot-backed actor: it suspends when idle and resumes on the next request"
+spec:
+  workloadType: proxy
+
+  allowedWorkflows:
+    - kind: ClusterWorkflow
+      name: paketo-buildpacks-builder
+    - kind: ClusterWorkflow
+      name: gcp-buildpacks-builder
+    - kind: ClusterWorkflow
+      name: dockerfile-builder
+    - kind: ClusterWorkflow
+      name: ballerina-buildpack-builder
+
+  validations:
+    - rule: "${size(workload.endpoints) > 0}"
+      message: "Substrate services must have at least one endpoint."
+    - rule: >-
+        ${workload.endpoints.all(name, workload.endpoints[name].type in ["HTTP", "GraphQL", "Websocket"])}
+      message: "Substrate services support HTTP, GraphQL and Websocket endpoints."
+    - rule: >-
+        ${workload.endpoints.exists(name, "external" in workload.endpoints[name].visibility)
+          ? has(gateway.ingress) && has(gateway.ingress.external)
+          : true}
+      message: "Endpoints with 'external' visibility require gateway.ingress.external to be configured on the Environment or DataPlane."
+    - rule: >-
+        ${workload.endpoints.exists(name, "internal" in workload.endpoints[name].visibility)
+          ? has(gateway.ingress) && has(gateway.ingress.internal)
+          : true}
+      message: "Endpoints with 'internal' visibility require gateway.ingress.internal to be configured on the Environment or DataPlane."
+    - rule: "${size(configurations.configs.files) == 0 && size(configurations.secrets.files) == 0 && size(dependencies.toVolumes()) == 0}"
+      message: "Substrate services cannot mount files yet; pass configuration as environment variables."
+
+  parameters:
+    openAPIV3Schema:
+      type: object
+      properties:
+        stateDir:
+          type: string
+          default: ""
+          description: "Absolute path whose contents persist across suspends, redeploys and new releases. Empty keeps no durable state."
+        readinessPath:
+          type: string
+          default: ""
+          description: "HTTP path on the first endpoint that answers once the app is ready. Empty waits a fixed warm-up before the first snapshot."
+
+  environmentConfigs:
+    openAPIV3Schema:
+      type: object
+      properties:
+        resources:
+          type: object
+          default: {}
+          properties:
+            cpu:
+              type: string
+              default: "500m"
+            memory:
+              type: string
+              default: "512Mi"
+        paused:
+          type: boolean
+          default: false
+          description: "Keep the component asleep: requests get 503 instead of waking it."
+
+  resources:
+    - id: actortemplate
+      template:
+        apiVersion: substrate.openchoreo.dev/v1alpha1
+        kind: ActorTemplate
+        metadata:
+          name: ${metadata.name}
+          namespace: ${metadata.namespace}
+          labels: ${metadata.labels}
+        spec:
+          sandboxClass: {{ $ct.sandboxClass }}
+          sandboxConfigName: {{ $ct.sandboxConfigName }}
+          {{- with $ct.workerSelector }}
+          workerSelector:
+            matchLabels: {{- toYaml . | nindent 14 }}
+          {{- end }}
+          resources:
+            limits:
+              cpu: ${environmentConfigs.resources.cpu}
+              memory: ${environmentConfigs.resources.memory}
+          durableDir: |
+            ${parameters.stateDir != "" ? {"mountPath": parameters.stateDir} : oc_omit()}
+          containers:
+            - name: main
+              image: ${workload.container.image}
+              command: |
+                ${has(workload.container.command) ? workload.container.command : oc_omit()}
+              args: |
+                ${has(workload.container.args) ? workload.container.args : oc_omit()}
+              env: ${dependencies.toContainerEnvs()}
+              envFrom: ${configurations.toContainerEnvFrom()}
+              wakeupProbe: |
+                ${parameters.readinessPath != ""
+                  ? {"httpGet": {"path": parameters.readinessPath,
+                      "port": workload.endpoints.map(n, n).sort().map(n, workload.endpoints[n].?targetPort.orValue(workload.endpoints[n].port))[0]}}
+                  : oc_omit()}
+
+    - id: actor
+      template:
+        apiVersion: substrate.openchoreo.dev/v1alpha1
+        kind: Actor
+        metadata:
+          name: ${metadata.name}
+          namespace: ${metadata.namespace}
+          labels: ${metadata.labels}
+        spec:
+          templateRef:
+            name: ${metadata.name}
+          serviceName: ${metadata.componentName}
+          paused: ${environmentConfigs.paused}
+          endpoints: |
+            ${workload.endpoints.map(n, n).sort().map(n, {
+              "name": n,
+              "port": workload.endpoints[n].port,
+              "targetPort": workload.endpoints[n].?targetPort.orValue(workload.endpoints[n].port),
+              "visibility": workload.endpoints[n].?visibility.orValue([])
+            })}
+
+    # Selector-less: the operator points its EndpointSlice at the front door,
+    # which applies the endpoints' visibility the way openchoreo-<component> would.
+    - id: service
+      template:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: ${metadata.componentName}
+          namespace: ${metadata.namespace}
+          labels: ${metadata.labels}
+        spec:
+          type: ClusterIP
+          ports: ${workload.toServicePorts()}
+
+    # As in the vanilla service type, plus a header naming the target: gateway
+    # traffic arrives with a public Host and an already-rewritten path.
+    - id: httproute-external
+      forEach: '${workload.endpoints.transformMap(name, ep, "external" in ep.visibility, ep)}'
+      var: endpoint
+      template:
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: ${oc_generate_name(metadata.componentName, endpoint.key)}
+          namespace: ${metadata.namespace}
+          labels: '${oc_merge(metadata.labels, {"openchoreo.dev/endpoint-name": endpoint.key, "openchoreo.dev/endpoint-visibility": "external"})}'
+        spec:
+          parentRefs:
+            - name: ${gateway.ingress.external.name}
+              namespace: ${gateway.ingress.external.namespace}
+          hostnames: |
+            ${[gateway.ingress.external.?http, gateway.ingress.external.?https]
+              .filter(g, g.hasValue()).map(g, g.value().host).distinct()
+              .map(h, metadata.environmentName + "-" + metadata.componentNamespace + "." + h)}
+          rules:
+          - matches:
+            - path:
+                type: PathPrefix
+                value: /${metadata.componentName}-${endpoint.key}
+            filters:
+              - type: URLRewrite
+                urlRewrite:
+                  path:
+                    type: ReplacePrefixMatch
+                    replacePrefixMatch: '${endpoint.value.?basePath.orValue("/")}'
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  set:
+                    - name: x-oc-substrate-target
+                      value: ${metadata.namespace}/${metadata.componentName}:${endpoint.value.port}
+              - type: CORS
+                cors:
+                  allowOrigins: ["*"]
+                  allowMethods: [GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD]
+                  allowHeaders: ["*"]
+                  exposeHeaders: ["*"]
+                  allowCredentials: false
+            backendRefs:
+            - name: ${metadata.componentName}
+              port: ${endpoint.value.port}
+
+    - id: httproute-internal
+      forEach: '${workload.endpoints.transformMap(name, ep, "internal" in ep.visibility, ep)}'
+      var: endpoint
+      template:
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: '${oc_generate_name(metadata.componentName, endpoint.key, "internal")}'
+          namespace: ${metadata.namespace}
+          labels: '${oc_merge(metadata.labels, {"openchoreo.dev/endpoint-name": endpoint.key, "openchoreo.dev/endpoint-visibility": "internal"})}'
+        spec:
+          parentRefs:
+            - name: ${gateway.ingress.internal.name}
+              namespace: ${gateway.ingress.internal.namespace}
+          hostnames: |
+            ${[gateway.ingress.internal.?http, gateway.ingress.internal.?https]
+              .filter(g, g.hasValue()).map(g, g.value().host).distinct()
+              .map(h, metadata.environmentName + "-" + metadata.componentNamespace + "." + h)}
+          rules:
+          - matches:
+            - path:
+                type: PathPrefix
+                value: /${metadata.componentName}-${endpoint.key}
+            filters:
+              - type: URLRewrite
+                urlRewrite:
+                  path:
+                    type: ReplacePrefixMatch
+                    replacePrefixMatch: '${endpoint.value.?basePath.orValue("/")}'
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  set:
+                    - name: x-oc-substrate-target
+                      value: ${metadata.namespace}/${metadata.componentName}:${endpoint.value.port}
+            backendRefs:
+            - name: ${metadata.componentName}
+              port: ${endpoint.value.port}
+
+    - id: env-config
+      forEach: ${configurations.toConfigEnvsByContainer()}
+      var: envConfig
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${envConfig.resourceName}
+          namespace: ${metadata.namespace}
+        data: |
+          ${envConfig.envs.transformMapEntry(index, env, {env.name: env.value})}
+
+    - id: secret-env-external
+      forEach: ${configurations.toSecretEnvsByContainer()}
+      var: secretEnv
+      template:
+        apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        metadata:
+          name: ${secretEnv.resourceName}
+          namespace: ${metadata.namespace}
+        spec:
+          refreshInterval: 15s
+          secretStoreRef:
+            name: ${dataplane.secretStore}
+            kind: ClusterSecretStore
+          target:
+            name: ${secretEnv.resourceName}
+            creationPolicy: Owner
+          data: |
+            ${secretEnv.envs.map(secret, {
+              "secretKey": secret.name,
+              "remoteRef": {
+                "key": secret.remoteRef.key,
+                ?"property": secret.remoteRef.?property
+              }
+            })}
+{{- end }}
