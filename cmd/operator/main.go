@@ -13,6 +13,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
+	"github.com/rashadism/oc-substrate/internal/ateclient"
 	"github.com/rashadism/oc-substrate/internal/controller"
 )
 
@@ -27,15 +28,34 @@ func init() {
 }
 
 func main() {
-	var metricsAddr, probeAddr string
+	var metricsAddr, probeAddr, storageLocation string
 	var leaderElect bool
+	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election.")
+	flag.StringVar(&ate.Target, "ateapi-target", "dns:///api.ate-system.svc:443", "ateapi gRPC target.")
+	flag.StringVar(&ate.ServerName, "ateapi-server-name", "api.ate-system.svc", "ateapi serving certificate DNS name.")
+	flag.StringVar(&ate.CredentialBundle, "ateapi-credential-bundle", "/run/podidentity/credential-bundle.pem",
+		"Client key and certificate chain for ateapi mTLS.")
+	flag.StringVar(&ate.CAFile, "ateapi-ca-file", "/run/servicedns-ca/trust-bundle.pem",
+		"CA bundle for the ateapi serving certificate.")
+	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if storageLocation == "" {
+		setupLog.Error(nil, "--storage-location is required")
+		os.Exit(1)
+	}
+	ateClient, err := ateclient.Dial(ate)
+	if err != nil {
+		setupLog.Error(err, "unable to create ateapi client")
+		os.Exit(1)
+	}
+	defer func() { _ = ateClient.Close() }()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
@@ -49,7 +69,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	actorTemplateR := &controller.ActorTemplateReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	actorTemplateR := &controller.ActorTemplateReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient, StorageLocation: storageLocation,
+	}
 	if err := actorTemplateR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ActorTemplate")
 		os.Exit(1)
