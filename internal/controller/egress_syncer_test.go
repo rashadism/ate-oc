@@ -119,3 +119,13 @@ func TestEgressSyncerFailsClosedWithoutClusterRanges(t *testing.T) {
 		t.Fatal("no policy (deny all) until the ranges are known")
 	}
 }
+
+func TestEgressSyncerSkipsActorsNotCreatedYet(t *testing.T) {
+	act := actorCR(id)
+	act.Status.Name = id.ActorName()
+	e := newEnv(t, false, append(egressObjects(), actorTemplate(), act)...)
+	s := &EgressSyncer{Client: e.actors.Client, Ate: e.ate}
+	if err := s.Sync(context.Background()); err != nil {
+		t.Fatalf("an actor without a Substrate uid is skipped: %v", err)
+	}
+}

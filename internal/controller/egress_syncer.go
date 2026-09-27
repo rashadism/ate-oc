@@ -91,7 +91,7 @@ func (s *EgressSyncer) Sync(ctx context.Context) error {
 	var errs []error
 	for i := range actors.Items {
 		act := &actors.Items[i]
-		if act.Status.Name == "" || !act.DeletionTimestamp.IsZero() {
+		if act.Status.UID == "" || !act.DeletionTimestamp.IsZero() {
 			continue
 		}
 		key := act.Namespace + "/" + act.Status.Name
