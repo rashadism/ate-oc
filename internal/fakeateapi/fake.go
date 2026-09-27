@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -132,6 +133,15 @@ func (s *Server) SetActorState(atespace, name string, state pb.ActorState, crash
 	bump(a.Metadata)
 }
 
+// AgeActor moves an actor's last update back by d, e.g. to simulate a stuck SUSPENDING.
+func (s *Server) AgeActor(atespace, name string, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a := s.actors[key{atespace, name}]; a != nil {
+		a.Metadata.UpdateTime = timestamppb.New(a.Metadata.UpdateTime.AsTime().Add(-d))
+	}
+}
+
 func newMeta(in *pb.ResourceMetadata) *pb.ResourceMetadata {
 	now := timestamppb.Now()
 	return &pb.ResourceMetadata{
@@ -201,6 +211,19 @@ func (s *Server) GetAtespace(_ context.Context, req *pb.GetAtespaceRequest) (*pb
 		return nil, status.Errorf(codes.NotFound, "atespace %s not found", name)
 	}
 	return clone(as), nil
+}
+
+func (s *Server) ListAtespaces(_ context.Context, _ *pb.ListAtespacesRequest) (*pb.ListAtespacesResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.injected("ListAtespaces"); err != nil {
+		return nil, err
+	}
+	resp := &pb.ListAtespacesResponse{}
+	for _, as := range s.atespaces {
+		resp.Atespaces = append(resp.Atespaces, clone(as))
+	}
+	return resp, nil
 }
 
 func (s *Server) CreateActorTemplate(_ context.Context, req *pb.CreateActorTemplateRequest) (*pb.ActorTemplate, error) {

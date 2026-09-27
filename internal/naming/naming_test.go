@@ -54,3 +54,13 @@ func TestNames(t *testing.T) {
 		t.Errorf("revision name = %q, want %q", got, want)
 	}
 }
+
+func TestActorNameHelpers(t *testing.T) {
+	id := Identity{ComponentUID: "c", EnvironmentUID: "e"}
+	if !IsActorName(id.ActorName()) || IsActorName("my-counter-1") || IsActorName("a-XYZ") {
+		t.Fatal("IsActorName misclassifies")
+	}
+	if RevisionPrefixForActor(id.ActorName()) != id.TemplateRevisionPrefix() {
+		t.Fatal("revision prefix not recoverable from actor name")
+	}
+}

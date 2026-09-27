@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 const (
@@ -44,3 +46,16 @@ func (id Identity) TemplateRevisionName(specHash string) string {
 func (id Identity) TemplateRevisionPrefix() string {
 	return "t-" + id.hash10() + "-"
 }
+
+// IsActorName reports whether name has the shape ActorName produces.
+func IsActorName(name string) bool {
+	return actorName.MatchString(name)
+}
+
+// RevisionPrefixForActor recovers the revision prefix of the identity that
+// owns an actor, without knowing its UIDs.
+func RevisionPrefixForActor(name string) string {
+	return "t-" + strings.TrimPrefix(name, "a-") + "-"
+}
+
+var actorName = regexp.MustCompile(`^a-[0-9a-f]{10}$`)
