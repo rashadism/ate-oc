@@ -2,15 +2,20 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
 	"github.com/rashadism/oc-substrate/internal/naming"
@@ -431,47 +436,116 @@ func TestCrashIsSurfacedThenReverted(t *testing.T) {
 	}
 }
 
+func (e *env) egressRules() []*pb.EgressRule {
+	e.t.Helper()
+	p, err := e.ate.GetActorEgressPolicy(context.Background(), &pb.GetActorEgressPolicyRequest{Actor: actorRef(ns, id.ActorName())})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return p.GetRules()
+}
+
+func hostnames(rules []*pb.EgressRule) []string {
+	out := make([]string, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, r.GetHostnames().GetPatterns()...)
+	}
+	return out
+}
+
+func cidrs(rules []*pb.EgressRule) []string {
+	out := make([]string, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, r.GetCidrs().GetCidrs()...)
+	}
+	return out
+}
+
 func TestEgressPolicy(t *testing.T) {
 	e := deployed(t)
-	ref := actorRef(ns, id.ActorName())
-	policy := func() *pb.EgressPolicy {
-		p, err := e.ate.GetActorEgressPolicy(context.Background(), &pb.GetActorEgressPolicyRequest{Actor: ref})
-		if status.Code(err) == codes.NotFound {
-			return nil
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	if policy() != nil {
-		t.Fatal("no extra egress means no policy (deny all)")
+	cell := "*." + ns + ".svc.cluster.local"
+	if got := hostnames(e.egressRules()); len(got) != 1 || got[0] != cell {
+		t.Fatalf("the actor's own cell is always reachable (project visibility), got %v", got)
 	}
 
 	e.updateActorCR(func(a *substratev1alpha1.Actor) {
 		a.Spec.ExtraEgress = &substratev1alpha1.ExtraEgress{Hostnames: []string{"api.example.com"}}
 	})
 	e.reconcileActor()
-	if p := policy(); len(p.GetRules()) != 1 || p.GetRules()[0].GetHostnames().GetPatterns()[0] != "api.example.com" {
-		t.Fatalf("policy = %v", p)
+	if got := hostnames(e.egressRules()); len(got) != 2 || got[1] != "api.example.com" {
+		t.Fatalf("hostnames = %v", got)
 	}
 	wantActorCond(t, e.actorCR(), CondEgressResolved, metav1.ConditionTrue, "Applied")
-
-	e.updateActorCR(func(a *substratev1alpha1.Actor) {
-		a.Spec.ExtraEgress = &substratev1alpha1.ExtraEgress{Hostnames: []string{"api.example.com", "b.example.com"}}
-	})
-	e.reconcileActor()
-	if p := policy(); len(p.GetRules()[0].GetHostnames().GetPatterns()) != 2 {
-		t.Fatalf("policy not updated: %v", p)
-	}
 
 	e.updateActorCR(func(a *substratev1alpha1.Actor) {
 		a.Spec.ExtraEgress = &substratev1alpha1.ExtraEgress{CIDRs: []string{"10.0.0.1"}}
 	})
 	e.reconcileActor()
 	wantActorCond(t, e.actorCR(), CondEgressResolved, metav1.ConditionFalse, "Rejected")
-	if policy() != nil {
-		t.Fatal("rejected egress must fall back to deny all")
+	if got := hostnames(e.egressRules()); len(got) != 1 || len(cidrs(e.egressRules())) != 0 {
+		t.Fatalf("rejected egress is left out: %v", e.egressRules())
+	}
+}
+
+func TestDependencyEgress(t *testing.T) {
+	org := map[string]string{"openchoreo.dev/namespace": "acme", "openchoreo.dev/environment": "dev"}
+	tcp := corev1.ProtocolTCP
+	port := func(p int) []networkingv1.NetworkPolicyPort {
+		v := intstr.FromInt(p)
+		return []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &v}}
+	}
+	policy := &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "dp-billing", Name: "openchoreo-invoices"},
+		Spec: networkingv1.NetworkPolicySpec{Ingress: []networkingv1.NetworkPolicyIngressRule{
+			{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}, Ports: append(port(8080), port(9000)...)},
+			{From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchLabels: org}}}, Ports: port(8080)},
+		}},
+	}
+	objs := []client.Object{
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: org}},
+		policy,
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "db"}, Spec: corev1.ServiceSpec{ClusterIP: "10.96.0.10"}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "headless"}, Spec: corev1.ServiceSpec{ClusterIP: "None"}},
+	}
+	act := actorCR(id)
+	act.Spec.Dependencies = &substratev1alpha1.Dependencies{
+		Endpoints: []substratev1alpha1.EndpointDependency{
+			{Namespace: "dp-billing", Component: "invoices", Port: 8080},
+			{Namespace: "dp-billing", Component: "invoices", Port: 9000},
+			{Namespace: "dp-billing", Component: "missing", Port: 8080},
+			{Namespace: ns, Component: "neighbour", Port: 80},
+		},
+		Resources: []substratev1alpha1.HostPort{
+			{Host: "db." + ns + ".svc.cluster.local", Port: 5432},
+			{Host: "headless." + ns + ".svc.cluster.local", Port: 5432},
+			{Host: "db.example.com", Port: 5432},
+		},
+	}
+	e := newEnv(t, true, append(objs, actorTemplate(), act)...)
+	if _, err := e.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileActor()
+
+	rules := e.egressRules()
+	if got := hostnames(rules); len(got) != 2 || got[0] != "*."+ns+".svc.cluster.local" || got[1] != "invoices.dp-billing.svc.cluster.local" {
+		t.Fatalf("hostnames = %v", got)
+	}
+	if got := cidrs(rules); len(got) != 1 || got[0] != "10.96.0.10/32" {
+		t.Fatalf("cidrs = %v", got)
+	}
+	c := e.actorCR()
+	wantActorCond(t, c, CondEgressResolved, metav1.ConditionFalse, "Rejected")
+	msg := ""
+	for _, cond := range c.Status.Conditions {
+		if cond.Type == CondEgressResolved {
+			msg = cond.Message
+		}
+	}
+	for _, want := range []string{"invoices:9000: not visible", "missing: not deployed", "headless", "db.example.com"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("condition message %q lacks %q", msg, want)
+		}
 	}
 }
 

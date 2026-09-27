@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,6 +56,7 @@ func build(t *testing.T, golden bool, objs ...client.Object) *env {
 	t.Helper()
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
+	_ = networkingv1.AddToScheme(s)
 	_ = substratev1alpha1.AddToScheme(s)
 	s.AddKnownTypeWithName(workerPoolListGVK.GroupVersion().WithKind("WorkerPool"), &unstructured.Unstructured{})
 	s.AddKnownTypeWithName(workerPoolListGVK, &unstructured.UnstructuredList{})
