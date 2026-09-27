@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net/http"
 	"net/netip"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
 	"github.com/rashadism/oc-substrate/internal/ateclient"
 	"github.com/rashadism/oc-substrate/internal/controller"
+	"github.com/rashadism/oc-substrate/internal/registry"
 )
 
 var (
@@ -42,6 +44,7 @@ func main() {
 	var frontDoorPort int
 	var egressInterval time.Duration
 	var clusterCIDRs, blockedCIDRs, egressNamespace string
+	var registryConfig, insecureRegistries string
 	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
@@ -62,6 +65,9 @@ func main() {
 	flag.StringVar(&clusterCIDRs, "cluster-cidrs", "", "Extra pod/Service ranges, comma-separated.")
 	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "", "Ranges actors may never reach, comma-separated.")
 	flag.StringVar(&egressNamespace, "egress-namespace", "ate-system", "Namespace of Substrate's egress gateway.")
+	flag.StringVar(&registryConfig, "registry-config", "/etc/oc-substrate/registry/.dockerconfigjson",
+		"Docker config with registry credentials for resolving image digests; optional.")
+	flag.StringVar(&insecureRegistries, "insecure-registries", "", "Registries reached over plain HTTP, comma-separated.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -82,6 +88,19 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "invalid --blocked-cidrs")
 		os.Exit(1)
+	}
+	creds, err := registry.DockerConfig(registryConfig)
+	if err != nil {
+		setupLog.Error(err, "invalid --registry-config")
+		os.Exit(1)
+	}
+	resolver := &registry.Resolver{
+		Client: &http.Client{Timeout: 30 * time.Second}, Credentials: creds, Insecure: map[string]bool{},
+	}
+	for _, r := range strings.Split(insecureRegistries, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			resolver.Insecure[r] = true
+		}
 	}
 	if storageLocation == "" {
 		setupLog.Error(nil, "--storage-location is required")
@@ -110,7 +129,7 @@ func main() {
 	}
 
 	actorTemplateR := &controller.ActorTemplateReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient, StorageLocation: storageLocation,
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient, StorageLocation: storageLocation, Images: resolver,
 	}
 	if err := actorTemplateR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ActorTemplate")

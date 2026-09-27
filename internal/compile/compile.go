@@ -35,6 +35,8 @@ type Options struct {
 	// SandboxConfigName overrides spec.sandboxConfigName, pinning an existing
 	// actor to the runtime its snapshots were taken with.
 	SandboxConfigName string
+	// Images maps each container image to its digest-pinned form.
+	Images map[string]string
 }
 
 type Result struct {
@@ -69,9 +71,13 @@ func Compile(ctx context.Context, r client.Reader, at *v1alpha1.ActorTemplate, o
 	refs := &resolver{r: r, ns: at.Namespace}
 	containers := make([]*pb.Container, 0, len(spec.Containers))
 	for _, c := range spec.Containers {
+		image := c.Image
+		if pinned, ok := opts.Images[image]; ok {
+			image = pinned
+		}
 		pc := &pb.Container{
 			Name:         c.Name,
-			Image:        c.Image,
+			Image:        image,
 			Command:      c.Command,
 			Args:         c.Args,
 			VolumeMounts: mounts,

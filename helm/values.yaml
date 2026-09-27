@@ -30,6 +30,13 @@ frontdoor:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
 
+# Substrate only runs digest-pinned images, so the operator resolves tags to
+# digests. Public images need nothing; for private registries, name a
+# kubernetes.io/dockerconfigjson Secret in the release namespace.
+registry:
+  pullSecret: ""
+  insecureRegistries: []
+
 egress:
   # Destinations actors can never reach. Actor traffic leaves through
   # Substrate's shared egress pod, so a metadata server (which identifies

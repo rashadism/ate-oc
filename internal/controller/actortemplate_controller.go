@@ -43,10 +43,17 @@ const (
 	configMapRefIndex = "spec.configMapRefs"
 )
 
+// ImageResolver pins an image reference to its digest.
+type ImageResolver interface {
+	Resolve(ctx context.Context, image string) (string, error)
+}
+
 type ActorTemplateReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Ate    pb.ControlClient
+	// Images pins tags to digests; Substrate rejects unpinned images.
+	Images ImageResolver
 	// StorageLocation is the snapshot object-store prefix; each atespace gets a sub-path.
 	StorageLocation string
 }
@@ -102,9 +109,15 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 		setCond(at, CondSandboxConfigOutdated, false, "UpToDate", "")
 	}
 
+	images, err := r.resolveImages(ctx, at)
+	if err != nil {
+		setCond(at, CondResolvedRefs, false, "ImageUnresolved", err.Error())
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 	compiled, err := compile.Compile(ctx, r.Client, at, compile.Options{
 		StorageLocation:   strings.TrimSuffix(r.StorageLocation, "/") + "/" + at.Namespace,
 		SandboxConfigName: pinned,
+		Images:            images,
 	})
 	var refErr *compile.RefError
 	switch {
@@ -130,6 +143,10 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 
 	at.Status.DesiredRevision = compiled.Hash
 	tpl, err := r.ensureRevision(ctx, compiled.Template)
+	if isCode(err, codes.InvalidArgument) || isCode(err, codes.FailedPrecondition) {
+		setCond(at, CondReady, false, "Rejected", err.Error())
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -162,6 +179,37 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 		return ctrl.Result{}, err
 	}
 	return result, goldenErr
+}
+
+// resolveImages pins every container image, reusing earlier resolutions of
+// the same reference and recording the result in status.
+func (r *ActorTemplateReconciler) resolveImages(ctx context.Context, at *substratev1alpha1.ActorTemplate) (map[string]string, error) {
+	known := map[string]string{}
+	for _, ri := range at.Status.ResolvedImages {
+		known[ri.Image] = ri.Pinned
+	}
+	out := map[string]string{}
+	var resolved []substratev1alpha1.ResolvedImage
+	for _, c := range at.Spec.Containers {
+		if _, done := out[c.Image]; done {
+			continue
+		}
+		pinned, ok := known[c.Image]
+		if !ok {
+			if r.Images == nil || strings.Contains(c.Image, "@") {
+				out[c.Image] = c.Image
+				continue
+			}
+			var err error
+			if pinned, err = r.Images.Resolve(ctx, c.Image); err != nil {
+				return nil, fmt.Errorf("resolve image %s: %w", c.Image, err)
+			}
+		}
+		out[c.Image] = pinned
+		resolved = append(resolved, substratev1alpha1.ResolvedImage{Image: c.Image, Pinned: pinned})
+	}
+	at.Status.ResolvedImages = resolved
+	return out, nil
 }
 
 func (r *ActorTemplateReconciler) finalize(ctx context.Context, at *substratev1alpha1.ActorTemplate) error {

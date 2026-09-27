@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -456,5 +457,66 @@ func TestDeleteReleasesImmediately(t *testing.T) {
 	revs := e2.revisions()
 	if _, ok := revs[ref2]; !ok || len(revs) != 1 {
 		t.Fatalf("only the retained actor's revision should remain, got %d (unreferenced=%s)", len(revs), unreferenced)
+	}
+}
+
+type fakeResolver struct {
+	calls  int
+	digest string
+}
+
+func (f *fakeResolver) Resolve(_ context.Context, image string) (string, error) {
+	f.calls++
+	return image + "@" + f.digest, nil
+}
+
+func TestImagesArePinnedOnce(t *testing.T) {
+	e := newEnv(t, true, actorTemplate())
+	res := &fakeResolver{digest: "sha256:aaa"}
+	e.r.Images = res
+	if _, err := e.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	rev := func() string {
+		return e.revisions()[id.TemplateRevisionName(e.get().Status.DesiredRevision)].GetContainers()[0].GetImage()
+	}
+	if got := rev(); got != "ghcr.io/x/app:1@sha256:aaa" {
+		t.Fatalf("revision image = %s", got)
+	}
+
+	res.digest = "sha256:bbb" // the tag moved
+	if _, err := e.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if got := rev(); got != "ghcr.io/x/app:1@sha256:aaa" || res.calls != 1 {
+		t.Fatalf("a moved tag must not roll the actor: image=%s calls=%d", got, res.calls)
+	}
+
+	e.update(func(at *substratev1alpha1.ActorTemplate) { at.Spec.Containers[0].Image = image2 })
+	if _, err := e.reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if got := rev(); got != image2+"@sha256:bbb" {
+		t.Fatalf("a new image reference is resolved afresh, got %s", got)
+	}
+	if st := e.get().Status.ResolvedImages; len(st) != 1 || st[0].Image != image2 {
+		t.Fatalf("status keeps only current images: %+v", st)
+	}
+}
+
+func TestRejectedTemplateIsReported(t *testing.T) {
+	e := newEnv(t, true, actorTemplate())
+	srv := fakeateapi.New(fakeateapi.WithSandboxConfig("gvisor-v1", pb.SandboxClass_SANDBOX_CLASS_GVISOR), fakeateapi.WithPinnedImages())
+	e.r.Ate = fakeateapi.Start(t, srv)
+	res, err := e.reconcile()
+	if err != nil {
+		t.Fatalf("a rejection is reported, not retried hot: %v", err)
+	}
+	if res.RequeueAfter != time.Minute {
+		t.Fatalf("requeue = %v", res.RequeueAfter)
+	}
+	c := cond(e.get(), CondReady)
+	if c.Reason != "Rejected" || !strings.Contains(c.Message, "must be pinned by digest") {
+		t.Fatalf("Ready = %+v", c)
 	}
 }

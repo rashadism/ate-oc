@@ -173,9 +173,21 @@ type TemplateRevision struct {
 	Message string `json:"message,omitempty"`
 }
 
+type ResolvedImage struct {
+	Image  string `json:"image"`
+	Pinned string `json:"pinned"`
+}
+
 type ActorTemplateStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// ResolvedImages records the digest each image tag resolved to. A tag is
+	// resolved once and kept until the spec names a different image, so a
+	// pushed tag does not roll actors on its own, as with a Deployment.
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	ResolvedImages []ResolvedImage `json:"resolvedImages,omitempty"`
 
 	// +optional
 	DesiredRevision string `json:"desiredRevision,omitempty"`

@@ -54,6 +54,9 @@ spec:
             - --frontdoor-port={{ .Values.frontdoor.port }}
             - --blocked-cidrs={{ join "," .Values.egress.blockedCIDRs }}
             - --egress-namespace={{ .Values.ateSystemNamespace }}
+            {{- with .Values.registry.insecureRegistries }}
+            - --insecure-registries={{ join "," . }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
@@ -71,7 +74,14 @@ spec:
           volumeMounts:
             - {name: podidentity, mountPath: /run/podidentity, readOnly: true}
             - {name: servicedns-ca, mountPath: /run/servicedns-ca, readOnly: true}
+            {{- if .Values.registry.pullSecret }}
+            - {name: registry, mountPath: /etc/oc-substrate/registry, readOnly: true}
+            {{- end }}
       volumes:
+        {{- if .Values.registry.pullSecret }}
+        - name: registry
+          secret: {secretName: {{ .Values.registry.pullSecret }}}
+        {{- end }}
         - name: podidentity
           projected:
             sources:

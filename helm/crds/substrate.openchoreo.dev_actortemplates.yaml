@@ -366,6 +366,23 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              resolvedImages:
+                description: |-
+                  ResolvedImages records the digest each image tag resolved to. A tag is
+                  resolved once and kept until the spec names a different image, so a
+                  pushed tag does not roll actors on its own, as with a Deployment.
+                items:
+                  properties:
+                    image:
+                      type: string
+                    pinned:
+                      type: string
+                  required:
+                  - image
+                  - pinned
+                  type: object
+                maxItems: 10
+                type: array
               revisions:
                 items:
                   properties:
