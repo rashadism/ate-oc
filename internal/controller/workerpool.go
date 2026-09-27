@@ -16,8 +16,8 @@ import (
 
 var workerPoolListGVK = schema.GroupVersionKind{Group: "ate.dev", Version: "v1alpha1", Kind: "WorkerPoolList"}
 
-// fits reports whether some WorkerPool of the template's class, whose worker
-// labels satisfy its selector, has per-worker limits at least as large as the
+// fits reports whether some WorkerPool of the template's class, whose labels
+// satisfy its worker selector, has per-worker limits at least as large as the
 // template's. It is read-only: placement and capacity stay Substrate's job.
 func (r *ActorTemplateReconciler) fits(ctx context.Context, at *substratev1alpha1.ActorTemplate) (bool, string, error) {
 	var pools unstructured.UnstructuredList
@@ -42,8 +42,8 @@ func (r *ActorTemplateReconciler) fits(ctx context.Context, at *substratev1alpha
 		if class != string(at.Spec.SandboxClass) {
 			continue
 		}
-		labels, _, _ := unstructured.NestedStringMap(p.Object, "spec", "template", "labels")
-		if !subset(selector, labels) {
+		// Substrate registers each worker with its pool's own labels.
+		if !subset(selector, p.GetLabels()) {
 			continue
 		}
 		matched++

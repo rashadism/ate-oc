@@ -98,12 +98,12 @@ func workerPool(name, memLimit string) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "ate.dev/v1alpha1",
 		"kind":       "WorkerPool",
-		"metadata":   map[string]any{"name": name, "namespace": "ate-system"},
+		"metadata":   map[string]any{"name": name, "namespace": "ate-system", "labels": map[string]any{"pool": name}},
 		"spec": map[string]any{
 			"replicas":    int64(2),
 			"workerImage": "w",
 			"template": map[string]any{
-				"labels":    map[string]any{"pool": name},
+				"labels":    map[string]any{"ignored": "true"},
 				"resources": map[string]any{"limits": map[string]any{"memory": memLimit}},
 			},
 		},
