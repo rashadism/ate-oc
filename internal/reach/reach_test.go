@@ -47,6 +47,7 @@ func svc(ns, name, ip string, selector map[string]string) Service {
 func snapshot() *Snapshot {
 	return &Snapshot{
 		ClusterRanges: []netip.Prefix{netip.MustParsePrefix("10.32.0.0/14"), netip.MustParsePrefix("34.118.224.0/20")},
+		Blocked:       []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("fd00:ec2::254/128")},
 		Pods: []Pod{
 			component(cellA, "web", "10.32.0.10"),
 			component(cellB, "invoices", "10.32.1.10"),
@@ -101,6 +102,8 @@ func TestAllowed(t *testing.T) {
 		{name: "internet ipv6", ip: "2001:4860:4860::8888", fromA: true, fromX: true},
 		{name: "node / peered network outside cluster ranges", ip: "10.148.0.5", fromA: true, fromX: true},
 		{name: "metadata server", ip: "169.254.169.254"},
+		{name: "aws metadata over ipv6", ip: "fd00:ec2::254"},
+		{name: "loopback is always blocked", ip: "127.0.0.1"},
 		{name: "own cell component pod", ip: "10.32.0.10", fromA: true},
 		{name: "own cell component service", ip: "34.118.224.10", fromA: true},
 		{name: "namespace-visible component, same org", ip: "10.32.1.10", fromA: true},

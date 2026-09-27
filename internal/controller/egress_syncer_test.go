@@ -62,7 +62,7 @@ func TestEgressSyncerMirrorsPodReachability(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.reconcileActor()
-	s := &EgressSyncer{Client: e.actors.Client, Ate: e.ate}
+	s := &EgressSyncer{Client: e.actors.Client, Ate: e.ate, Blocked: []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16")}}
 	if err := s.Sync(context.Background()); err != nil {
 		t.Fatal(err)
 	}

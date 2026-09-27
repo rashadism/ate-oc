@@ -41,7 +41,7 @@ func main() {
 	var frontDoorNamespace, frontDoorSelector string
 	var frontDoorPort int
 	var egressInterval time.Duration
-	var clusterCIDRs string
+	var clusterCIDRs, blockedCIDRs string
 	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
@@ -60,6 +60,7 @@ func main() {
 	flag.IntVar(&frontDoorPort, "frontdoor-port", 8080, "Front door proxy port.")
 	flag.DurationVar(&egressInterval, "egress-sync-interval", 5*time.Second, "How often actor egress is recomputed.")
 	flag.StringVar(&clusterCIDRs, "cluster-cidrs", "", "Extra pod/Service ranges, comma-separated.")
+	flag.StringVar(&blockedCIDRs, "blocked-cidrs", "", "Ranges actors may never reach, comma-separated.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -71,17 +72,15 @@ func main() {
 		setupLog.Error(err, "--frontdoor-namespace and a valid --frontdoor-selector are required")
 		os.Exit(1)
 	}
-	var extraRanges []netip.Prefix
-	for _, c := range strings.Split(clusterCIDRs, ",") {
-		if c = strings.TrimSpace(c); c == "" {
-			continue
-		}
-		p, err := netip.ParsePrefix(c)
-		if err != nil {
-			setupLog.Error(err, "invalid --cluster-cidrs")
-			os.Exit(1)
-		}
-		extraRanges = append(extraRanges, p.Masked())
+	extraRanges, err := parsePrefixes(clusterCIDRs)
+	if err != nil {
+		setupLog.Error(err, "invalid --cluster-cidrs")
+		os.Exit(1)
+	}
+	blockedRanges, err := parsePrefixes(blockedCIDRs)
+	if err != nil {
+		setupLog.Error(err, "invalid --blocked-cidrs")
+		os.Exit(1)
 	}
 	if storageLocation == "" {
 		setupLog.Error(nil, "--storage-location is required")
@@ -140,7 +139,8 @@ func main() {
 		os.Exit(1)
 	}
 	if err := mgr.Add(&controller.EgressSyncer{
-		Client: mgr.GetClient(), Ate: ateClient, Interval: egressInterval, ExtraClusterRanges: extraRanges,
+		Client: mgr.GetClient(), Ate: ateClient, Interval: egressInterval,
+		ExtraClusterRanges: extraRanges, Blocked: blockedRanges,
 	}); err != nil {
 		setupLog.Error(err, "unable to add egress syncer")
 		os.Exit(1)
@@ -166,4 +166,19 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func parsePrefixes(csv string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, c := range strings.Split(csv, ",") {
+		if c = strings.TrimSpace(c); c == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(c)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
 }

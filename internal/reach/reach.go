@@ -17,12 +17,9 @@ import (
 	"github.com/rashadism/oc-substrate/internal/visibility"
 )
 
-// Blocked is never reachable. Link-local covers cloud metadata servers, which
-// would answer with the shared egress pod's identity rather than the actor's.
-var Blocked = []netip.Prefix{
-	netip.MustParsePrefix("169.254.0.0/16"),
+// loopback is never a valid destination for actor traffic.
+var loopback = []netip.Prefix{
 	netip.MustParsePrefix("127.0.0.0/8"),
-	netip.MustParsePrefix("fe80::/10"),
 	netip.MustParsePrefix("::1/128"),
 }
 
@@ -42,7 +39,11 @@ type Service struct {
 type Snapshot struct {
 	// ClusterRanges are the pod and Service ranges. Everything outside them
 	// (the internet, nodes, peered networks) is open, as for a pod.
-	ClusterRanges   []netip.Prefix
+	ClusterRanges []netip.Prefix
+	// Blocked is never reachable, e.g. cloud metadata servers, which identify
+	// callers by source IP and would answer with the shared egress pod's
+	// identity rather than the actor's.
+	Blocked         []netip.Prefix
 	Pods            []Pod
 	Services        []Service
 	Policies        []*networkingv1.NetworkPolicy
@@ -105,13 +106,14 @@ func (s *Snapshot) Allowed(cell string) []netip.Prefix {
 		inside = append(inside, svc.IPs...)
 	}
 
-	holes := make([]netip.Prefix, 0, len(s.ClusterRanges)+len(Blocked))
+	blockedRanges := append(slices.Clone(loopback), s.Blocked...)
+	holes := make([]netip.Prefix, 0, len(s.ClusterRanges)+len(blockedRanges))
 	holes = append(holes, s.ClusterRanges...)
-	holes = append(holes, Blocked...)
+	holes = append(holes, blockedRanges...)
 	out := subtract(netip.MustParsePrefix("0.0.0.0/0"), holes)
 	out = append(out, subtract(netip.MustParsePrefix("::/0"), holes)...)
 	for _, a := range inside {
-		if s.inCluster(a) && !blocked(a) {
+		if s.inCluster(a) && !contains(blockedRanges, a) {
 			out = append(out, netip.PrefixFrom(a, a.BitLen()))
 		}
 	}
@@ -129,18 +131,11 @@ func (s *Snapshot) selectsOnlyReachable(svc Service, reachable func(string, map[
 	return true
 }
 
-func (s *Snapshot) inCluster(a netip.Addr) bool {
-	for _, r := range s.ClusterRanges {
-		if r.Contains(a) {
-			return true
-		}
-	}
-	return false
-}
+func (s *Snapshot) inCluster(a netip.Addr) bool { return contains(s.ClusterRanges, a) }
 
-func blocked(a netip.Addr) bool {
-	for _, b := range Blocked {
-		if b.Contains(a) {
+func contains(ps []netip.Prefix, a netip.Addr) bool {
+	for _, p := range ps {
+		if p.Contains(a) {
 			return true
 		}
 	}

@@ -30,6 +30,19 @@ frontdoor:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 512Mi}
 
+egress:
+  # Destinations actors can never reach. Actor traffic leaves through
+  # Substrate's shared egress pod, so a metadata server (which identifies
+  # callers by source IP) would hand an actor the egress pod's cloud
+  # credentials instead of refusing. Pods get their own identity; actors
+  # can't, so these are blocked. Add your platform's endpoints if missing.
+  blockedCIDRs:
+    - 169.254.0.0/16      # link-local: GCP, AWS, Azure IMDS, OpenStack, DigitalOcean, Oracle
+    - fe80::/10           # IPv6 link-local
+    - fd00:ec2::254/128   # AWS IMDS over IPv6
+    - 168.63.129.16/32    # Azure WireServer (host agent)
+    - 100.100.100.200/32  # Alibaba Cloud metadata
+
 # Router lockdown and front door ingress.
 networkPolicies:
   enabled: true

@@ -43,6 +43,8 @@ type EgressSyncer struct {
 	Interval time.Duration
 	// ExtraClusterRanges adds pod or Service ranges the cluster does not report.
 	ExtraClusterRanges []netip.Prefix
+	// Blocked is never reachable from actors.
+	Blocked []netip.Prefix
 
 	applied map[string]string
 	cycles  int
@@ -125,7 +127,7 @@ func (s *EgressSyncer) Sync(ctx context.Context) error {
 }
 
 func (s *EgressSyncer) snapshot(ctx context.Context) (*reach.Snapshot, error) {
-	snap := &reach.Snapshot{NamespaceLabels: map[string]map[string]string{}}
+	snap := &reach.Snapshot{NamespaceLabels: map[string]map[string]string{}, Blocked: s.Blocked}
 	snap.ClusterRanges = append(snap.ClusterRanges, s.ExtraClusterRanges...)
 
 	var nodes corev1.NodeList
