@@ -34,12 +34,6 @@ type ActorSpec struct {
 	// +listMapKey=name
 	// +optional
 	Endpoints []Endpoint `json:"endpoints,omitempty"`
-
-	// +optional
-	Dependencies *Dependencies `json:"dependencies,omitempty"`
-
-	// +optional
-	ExtraEgress *ExtraEgress `json:"extraEgress,omitempty"`
 }
 
 type LocalRef struct {
@@ -69,36 +63,6 @@ func (e Endpoint) ActorPort() int32 {
 		return e.TargetPort
 	}
 	return e.Port
-}
-
-type Dependencies struct {
-	// +optional
-	Endpoints []EndpointDependency `json:"endpoints,omitempty"`
-	// +optional
-	Resources []HostPort `json:"resources,omitempty"`
-}
-
-type EndpointDependency struct {
-	Namespace string `json:"namespace"`
-	Component string `json:"component"`
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65535
-	Port int32 `json:"port"`
-}
-
-type HostPort struct {
-	// +kubebuilder:validation:MinLength=1
-	Host string `json:"host"`
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65535
-	Port int32 `json:"port"`
-}
-
-type ExtraEgress struct {
-	// +optional
-	Hostnames []string `json:"hostnames,omitempty"`
-	// +optional
-	CIDRs []string `json:"cidrs,omitempty"`
 }
 
 type ActorStatus struct {

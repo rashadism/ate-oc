@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,14 +21,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
-	"github.com/rashadism/oc-substrate/internal/compile"
 	"github.com/rashadism/oc-substrate/internal/naming"
-	"github.com/rashadism/oc-substrate/internal/visibility"
 	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
 )
 
 const (
-	CondEgressResolved = "EgressResolved"
 	CondRepointBlocked = "RepointBlocked"
 
 	actorPoll    = 10 * time.Second
@@ -47,9 +42,7 @@ type ActorReconciler struct {
 	Recorder events.EventRecorder
 	// RetentionTTL is how long a deleted component's actor keeps its state.
 	RetentionTTL time.Duration
-	// ClusterDomain is the Service DNS suffix; empty means cluster.local.
-	ClusterDomain string
-	Now           func() time.Time
+	Now          func() time.Time
 }
 
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actors,verbs=get;list;watch;update;patch
@@ -57,8 +50,6 @@ type ActorReconciler struct {
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actors/finalizers,verbs=update
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=retainedactors,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups="",resources=namespaces;services,verbs=get;list;watch
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch
 
 func (r *ActorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var act substratev1alpha1.Actor
@@ -143,10 +134,6 @@ func (r *ActorReconciler) reconcile(ctx context.Context, act *substratev1alpha1.
 			return ctrl.Result{}, err
 		}
 		r.event(act, corev1.EventTypeWarning, "Reverted", "actor crashed (%s); reverted to its last snapshot", act.Status.CrashReason)
-	}
-
-	if err := r.applyEgress(ctx, act, ref); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	if a.GetStatus().GetState() == pb.ActorState_ACTOR_STATE_CRASHED {
@@ -237,111 +224,6 @@ func (r *ActorReconciler) repoint(ctx context.Context, act *substratev1alpha1.Ac
 	r.event(act, corev1.EventTypeNormal, "Rolled", "actor moved from %s to %s", a.GetActorTemplate().GetName(), target)
 	act.Status.Revision = target
 	return ctrl.Result{Requeue: true}, nil
-}
-
-// egressRules allows what OpenChoreo would let a pod in the actor's cell
-// reach: every Service in the cell (project visibility), declared dependencies
-// in other cells whose policy admits the cell, declared resources by ClusterIP,
-// and extraEgress. It returns messages for what it had to leave out.
-func (r *ActorReconciler) egressRules(ctx context.Context, act *substratev1alpha1.Actor) ([]*pb.EgressRule, []string, error) {
-	domain := r.ClusterDomain
-	if domain == "" {
-		domain = "cluster.local"
-	}
-	hosts := []string{"*." + act.Namespace + ".svc." + domain}
-	var cidrs, rejected []string
-
-	var cell corev1.Namespace
-	if err := r.Get(ctx, types.NamespacedName{Name: act.Namespace}, &cell); client.IgnoreNotFound(err) != nil {
-		return nil, nil, err
-	}
-	if deps := act.Spec.Dependencies; deps != nil {
-		for _, d := range deps.Endpoints {
-			depNs := d.Namespace
-			if depNs == "" || depNs == act.Namespace {
-				continue
-			}
-			var np networkingv1.NetworkPolicy
-			err := r.Get(ctx, types.NamespacedName{Namespace: depNs, Name: visibility.PolicyName(d.Component)}, &np)
-			switch {
-			case apierrors.IsNotFound(err):
-				rejected = append(rejected, fmt.Sprintf("%s/%s: not deployed", depNs, d.Component))
-				continue
-			case err != nil:
-				return nil, nil, err
-			}
-			if !visibility.Admits(&np, act.Namespace, cell.Labels, d.Port) {
-				rejected = append(rejected, fmt.Sprintf("%s/%s:%d: not visible to this cell", depNs, d.Component, d.Port))
-				continue
-			}
-			hosts = append(hosts, d.Component+"."+depNs+".svc."+domain)
-		}
-		for _, res := range deps.Resources {
-			ip, err := r.serviceIP(ctx, res.Host, domain)
-			if err != nil {
-				rejected = append(rejected, fmt.Sprintf("%s: %v", res.Host, err))
-				continue
-			}
-			cidrs = append(cidrs, ip+"/32")
-		}
-	}
-
-	rules := []*pb.EgressRule{{Hostnames: &pb.HostnameRule{Patterns: hosts}}}
-	if len(cidrs) > 0 {
-		rules = append(rules, &pb.EgressRule{Cidrs: &pb.CIDRRule{Cidrs: cidrs}})
-	}
-	extra, err := compile.Egress(act.Spec.ExtraEgress)
-	if err != nil {
-		rejected = append(rejected, err.Error())
-	}
-	return append(rules, extra...), rejected, nil
-}
-
-// serviceIP resolves <name>.<namespace>.svc.<domain> to its ClusterIP.
-func (r *ActorReconciler) serviceIP(ctx context.Context, host, domain string) (string, error) {
-	name, rest, _ := strings.Cut(host, ".")
-	ns, suffix, _ := strings.Cut(rest, ".")
-	if name == "" || ns == "" || suffix != "svc."+domain {
-		return "", errors.New("not a cluster Service name")
-	}
-	var svc corev1.Service
-	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, &svc); err != nil {
-		return "", client.IgnoreNotFound(err)
-	}
-	if svc.Spec.ClusterIP == "" || svc.Spec.ClusterIP == corev1.ClusterIPNone {
-		return "", errors.New("service has no ClusterIP")
-	}
-	return svc.Spec.ClusterIP, nil
-}
-
-func (r *ActorReconciler) applyEgress(ctx context.Context, act *substratev1alpha1.Actor, ref *pb.ObjectRef) error {
-	rules, rejected, err := r.egressRules(ctx, act)
-	if err != nil {
-		return err
-	}
-	if len(rejected) > 0 {
-		setActorCond(act, CondEgressResolved, false, "Rejected", strings.Join(rejected, "; "))
-	} else {
-		setActorCond(act, CondEgressResolved, true, "Applied", "")
-	}
-
-	cur, err := r.Ate.GetActorEgressPolicy(ctx, &pb.GetActorEgressPolicyRequest{Actor: ref})
-	switch {
-	case isCode(err, codes.NotFound):
-		_, err = r.Ate.CreateActorEgressPolicy(ctx, &pb.CreateActorEgressPolicyRequest{Actor: ref, EgressPolicy: &pb.EgressPolicy{
-			Metadata: &pb.ResourceMetadata{Atespace: ref.GetAtespace(), Name: "default"},
-			Rules:    rules,
-		}})
-		return err
-	case err != nil:
-		return err
-	}
-	if proto.Equal(&pb.EgressPolicy{Rules: cur.GetRules()}, &pb.EgressPolicy{Rules: rules}) {
-		return nil
-	}
-	cur.Rules = rules
-	_, err = r.Ate.UpdateActorEgressPolicy(ctx, &pb.UpdateActorEgressPolicyRequest{Actor: ref, EgressPolicy: cur})
-	return ignoreCodes(err, codes.Aborted)
 }
 
 func ignoreCodes(err error, cs ...codes.Code) error {

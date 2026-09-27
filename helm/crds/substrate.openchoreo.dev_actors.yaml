@@ -52,43 +52,6 @@ spec:
             type: object
           spec:
             properties:
-              dependencies:
-                properties:
-                  endpoints:
-                    items:
-                      properties:
-                        component:
-                          type: string
-                        namespace:
-                          type: string
-                        port:
-                          format: int32
-                          maximum: 65535
-                          minimum: 1
-                          type: integer
-                      required:
-                      - component
-                      - namespace
-                      - port
-                      type: object
-                    type: array
-                  resources:
-                    items:
-                      properties:
-                        host:
-                          minLength: 1
-                          type: string
-                        port:
-                          format: int32
-                          maximum: 65535
-                          minimum: 1
-                          type: integer
-                      required:
-                      - host
-                      - port
-                      type: object
-                    type: array
-                type: object
               endpoints:
                 items:
                   properties:
@@ -128,17 +91,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-              extraEgress:
-                properties:
-                  cidrs:
-                    items:
-                      type: string
-                    type: array
-                  hostnames:
-                    items:
-                      type: string
-                    type: array
-                type: object
               idleTimeout:
                 default: 5m
                 type: string
