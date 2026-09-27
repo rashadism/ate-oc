@@ -68,7 +68,8 @@ func main() {
 		fatal("create client", err)
 	}
 	dir := &frontdoor.ClusterDirectory{
-		Reader: c, Live: live, EgressNamespace: *egressNS, EgressLabels: map[string]string{"app": "atenet-egress"},
+		Reader: c, Live: live, LiveRetry: 2 * time.Second,
+		EgressNamespace: *egressNS, EgressLabels: map[string]string{"app": "atenet-egress"},
 	}
 	proxy := &http.Server{
 		Addr: *addr,

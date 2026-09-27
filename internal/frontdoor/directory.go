@@ -2,6 +2,7 @@ package frontdoor
 
 import (
 	"context"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,9 +21,11 @@ const (
 // ClusterDirectory answers Directory lookups from informer caches.
 type ClusterDirectory struct {
 	Reader client.Reader
-	// Live, if set, answers caller lookups the cache misses: a pod that calls
-	// right after starting is often not in the informer cache yet.
+	// Live, if set, answers caller lookups the cache misses. A pod can call
+	// before the kubelet has reported its IP, so a miss is retried briefly.
 	Live client.Reader
+	// LiveRetry is how long to keep looking for an unknown caller.
+	LiveRetry time.Duration
 	// EgressNamespace and EgressLabels identify Substrate's egress gateway pods.
 	EgressNamespace string
 	EgressLabels    map[string]string
@@ -69,7 +72,13 @@ func (d *ClusterDirectory) Caller(ip string) Caller {
 	if c := d.caller(d.Reader, ip); c.Kind != CallerUnknown || d.Live == nil {
 		return c
 	}
-	return d.caller(d.Live, ip)
+	deadline := time.Now().Add(d.LiveRetry)
+	for {
+		if c := d.caller(d.Live, ip); c.Kind != CallerUnknown || !time.Now().Before(deadline) {
+			return c
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 func (d *ClusterDirectory) caller(r client.Reader, ip string) Caller {
@@ -81,7 +90,8 @@ func (d *ClusterDirectory) caller(r client.Reader, ip string) Caller {
 		if p.Spec.HostNetwork {
 			continue
 		}
-		if p.Status.Phase != corev1.PodRunning {
+		// Finished pods may have handed their IP to a new pod.
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
 			continue
 		}
 		if p.Namespace == d.EgressNamespace && matches(p.Labels, d.EgressLabels) {

@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -116,16 +117,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	caller := h.dir.Caller(ip)
 	if caller.Kind == CallerUnknown {
-		deny()
+		deny(r, "unknown caller")
 	}
 
 	ns, svc, port, ok := h.resolve(r, caller)
 	if !ok {
-		deny()
+		deny(r, "unresolvable target")
 	}
 	t, ok := h.dir.Target(ns, svc, port)
-	if !ok || !h.allowed(caller, t) {
-		deny()
+	if !ok {
+		deny(r, "no actor for "+ns+"/"+svc+":"+strconv.Itoa(int(port)))
+	}
+	if !h.allowed(caller, t) {
+		deny(r, "not visible to caller in "+caller.Namespace)
 	}
 	if !t.Ready {
 		http.Error(w, "warming up", http.StatusServiceUnavailable)
@@ -146,7 +150,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // deny drops the request the way a NetworkPolicy would: no response.
-func deny() { panic(http.ErrAbortHandler) }
+func deny(r *http.Request, reason string) {
+	slog.Info("denied", "from", r.RemoteAddr, "host", r.Host, "reason", reason)
+	panic(http.ErrAbortHandler)
+}
 
 // resolve finds (namespace, service, port). Gateway traffic names it in
 // TargetHeader; everything else names the Service in Host, as any in-cluster
