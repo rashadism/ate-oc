@@ -1,0 +1,99 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: retainedactors.substrate.openchoreo.dev
+spec:
+  group: substrate.openchoreo.dev
+  names:
+    kind: RetainedActor
+    listKind: RetainedActorList
+    plural: retainedactors
+    shortNames:
+    - ract
+    singular: retainedactor
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.atespace
+      name: Atespace
+      type: string
+    - jsonPath: .spec.actorName
+      name: Actor
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.expiresAt
+      name: Expires
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              RetainedActorSpec records a Substrate actor whose Actor CR is gone. The
+              actor keeps its state until the entry expires or is deleted (purge), or an
+              Actor CR with the same component and environment UIDs re-attaches it.
+            properties:
+              actorName:
+                type: string
+                x-kubernetes-validations:
+                - message: actorName is immutable
+                  rule: self == oldSelf
+              actorUID:
+                description: |-
+                  ActorUID is the Substrate uid of the retained incarnation; purge never
+                  deletes an actor with a different uid.
+                type: string
+              atespace:
+                type: string
+                x-kubernetes-validations:
+                - message: atespace is immutable
+                  rule: self == oldSelf
+              componentUID:
+                type: string
+              environmentUID:
+                type: string
+              expiresAt:
+                format: date-time
+                type: string
+            required:
+            - actorName
+            - atespace
+            - expiresAt
+            type: object
+          status:
+            properties:
+              message:
+                type: string
+              phase:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

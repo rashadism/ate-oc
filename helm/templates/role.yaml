@@ -22,6 +22,13 @@ rules:
   - list
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - substrate.openchoreo.dev
   resources:
   - actors
@@ -37,6 +44,7 @@ rules:
   resources:
   - actors/finalizers
   - actortemplates/finalizers
+  - retainedactors/finalizers
   verbs:
   - update
 - apiGroups:
@@ -44,7 +52,20 @@ rules:
   resources:
   - actors/status
   - actortemplates/status
+  - retainedactors/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - substrate.openchoreo.dev
+  resources:
+  - retainedactors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

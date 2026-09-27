@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -30,6 +31,7 @@ func init() {
 func main() {
 	var metricsAddr, probeAddr, storageLocation string
 	var leaderElect bool
+	var retentionTTL, orphanScanInterval time.Duration
 	var ate ateclient.Config
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "Metrics endpoint address; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe endpoint address.")
@@ -40,6 +42,8 @@ func main() {
 		"Client key and certificate chain for ateapi mTLS.")
 	flag.StringVar(&ate.CAFile, "ateapi-ca-file", "/run/servicedns-ca/trust-bundle.pem",
 		"CA bundle for the ateapi serving certificate.")
+	flag.DurationVar(&retentionTTL, "retention-ttl", 30*24*time.Hour, "How long deleted components keep actor state.")
+	flag.DurationVar(&orphanScanInterval, "orphan-scan-interval", 10*time.Minute, "Untracked-actor scan interval.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
@@ -76,9 +80,25 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ActorTemplate")
 		os.Exit(1)
 	}
-	actorR := &controller.ActorReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	actorR := &controller.ActorReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient,
+		Recorder: mgr.GetEventRecorder("oc-substrate"), RetentionTTL: retentionTTL, Now: time.Now,
+	}
 	if err := actorR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Actor")
+		os.Exit(1)
+	}
+	retainedR := &controller.RetainedActorReconciler{
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient, Now: time.Now,
+	}
+	if err := retainedR.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "RetainedActor")
+		os.Exit(1)
+	}
+	if err := mgr.Add(&controller.OrphanScanner{
+		Client: mgr.GetClient(), Ate: ateClient, Interval: orphanScanInterval, RetentionTTL: retentionTTL, Now: time.Now,
+	}); err != nil {
+		setupLog.Error(err, "unable to add orphan scanner")
 		os.Exit(1)
 	}
 

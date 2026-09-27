@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	corev1 "k8s.io/api/core/v1"
@@ -34,10 +35,14 @@ var (
 )
 
 type env struct {
-	t   *testing.T
-	r   *ActorTemplateReconciler
-	srv *fakeateapi.Server
-	ate pb.ControlClient
+	t        *testing.T
+	r        *ActorTemplateReconciler
+	actors   *ActorReconciler
+	retained *RetainedActorReconciler
+	scanner  *OrphanScanner
+	srv      *fakeateapi.Server
+	ate      pb.ControlClient
+	now      time.Time
 }
 
 // newEnv adds a WorkerPool the default template fits.
@@ -55,7 +60,11 @@ func build(t *testing.T, golden bool, objs ...client.Object) *env {
 	s.AddKnownTypeWithName(workerPoolListGVK, &unstructured.UnstructuredList{})
 
 	c := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&substratev1alpha1.ActorTemplate{}).
+		WithStatusSubresource(&substratev1alpha1.ActorTemplate{}, &substratev1alpha1.Actor{}, &substratev1alpha1.RetainedActor{}).
+		WithIndex(&substratev1alpha1.Actor{}, actorIdentityIndex, actorIdentityName).
+		WithIndex(&substratev1alpha1.Actor{}, templateRefIndex, func(o client.Object) []string {
+			return []string{o.(*substratev1alpha1.Actor).Spec.TemplateRef.Name}
+		}).
 		WithIndex(&substratev1alpha1.ActorTemplate{}, secretRefIndex, func(o client.Object) []string {
 			return refNames(o.(*substratev1alpha1.ActorTemplate), true)
 		}).
@@ -73,7 +82,13 @@ func build(t *testing.T, golden bool, objs ...client.Object) *env {
 	}
 	srv := fakeateapi.New(opts...)
 	ate := fakeateapi.Start(t, srv)
-	return &env{t: t, srv: srv, ate: ate, r: &ActorTemplateReconciler{Client: c, Scheme: s, Ate: ate, StorageLocation: "s3://snap/"}}
+	e := &env{t: t, srv: srv, ate: ate, now: time.Now()}
+	clock := func() time.Time { return e.now }
+	e.r = &ActorTemplateReconciler{Client: c, Scheme: s, Ate: ate, StorageLocation: "s3://snap/"}
+	e.actors = &ActorReconciler{Client: c, Scheme: s, Ate: ate, RetentionTTL: 24 * time.Hour, Now: clock}
+	e.retained = &RetainedActorReconciler{Client: c, Scheme: s, Ate: ate, Now: clock}
+	e.scanner = &OrphanScanner{Client: c, Ate: ate, RetentionTTL: 24 * time.Hour, Now: clock}
+	return e
 }
 
 func actorTemplate() *substratev1alpha1.ActorTemplate {

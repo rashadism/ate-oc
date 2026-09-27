@@ -16,7 +16,8 @@ var (
 )
 
 func addKnownTypes(s *runtime.Scheme) error {
-	s.AddKnownTypes(GroupVersion, &ActorTemplate{}, &ActorTemplateList{}, &Actor{}, &ActorList{})
+	s.AddKnownTypes(GroupVersion, &ActorTemplate{}, &ActorTemplateList{}, &Actor{}, &ActorList{},
+		&RetainedActor{}, &RetainedActorList{})
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil
 }
