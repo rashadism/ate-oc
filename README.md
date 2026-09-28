@@ -33,8 +33,6 @@ helm install substrate oci://ghcr.io/rashadism/substrate/helm/substrate \
 
 ```
 helm install oc-substrate ./helm -n openchoreo-substrate --create-namespace \
-  --set image.repository=ghcr.io/rashadism/oc-substrate \
-  --set image.tag=v0.1.0 \
   --set storageLocation=gs://<your-snapshot-bucket>/oc-substrate
 ```
 

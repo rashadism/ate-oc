@@ -1,6 +1,6 @@
 image:
-  repository: oc-substrate
-  tag: dev
+  repository: ghcr.io/rashadism/oc-substrate
+  tag: v0.1.0
   pullPolicy: IfNotPresent
 
 # Snapshot object-store prefix; each atespace gets a sub-path. Required.
