@@ -62,7 +62,7 @@ openchoreo:
   clusterAgent:
     namespace: openchoreo-data-plane
     serviceAccount: cluster-agent-dataplane
-  # The substrate-service ClusterComponentType, a control plane resource;
+  # The substrate-actor ClusterComponentType, a control plane resource;
   # set enabled to false on a data-plane-only install.
   componentType:
     enabled: true

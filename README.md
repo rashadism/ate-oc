@@ -36,6 +36,8 @@ helm install oc-substrate ./helm -n openchoreo-substrate --create-namespace \
   --set storageLocation=gs://<your-snapshot-bucket>/oc-substrate
 ```
 
+This also installs the `proxy/substrate-actor` `ClusterComponentType` the sample below uses. No separate step for it.
+
 ### 4. A sample component
 
 ```yaml
@@ -48,7 +50,7 @@ spec:
   autoDeploy: true
   componentType:
     kind: ClusterComponentType
-    name: proxy/substrate-service
+    name: proxy/substrate-actor
   owner:
     projectName: default
 ---
@@ -62,7 +64,7 @@ spec:
     image: ghcr.io/rashadism/substrate/demo-counter:v0.2.0
   endpoints:
     http:
-      port: 8080
+      port: 80
       type: HTTP
       visibility:
       - external

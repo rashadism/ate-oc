@@ -3,7 +3,7 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: ClusterComponentType
 metadata:
-  name: substrate-service
+  name: substrate-actor
   annotations:
     openchoreo.dev/display-name: "Substrate Service"
     openchoreo.dev/description: "A request-serving component that runs as a snapshot-backed actor: it suspends when idle and resumes on the next request"

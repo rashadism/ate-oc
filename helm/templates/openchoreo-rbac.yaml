@@ -1,5 +1,5 @@
 # The data plane cluster-agent server-side applies the ActorTemplates and
-# Actors that the substrate-service ComponentType renders.
+# Actors that the substrate-actor ComponentType renders.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
