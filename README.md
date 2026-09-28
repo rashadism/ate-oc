@@ -31,19 +31,10 @@ helm install substrate oci://ghcr.io/rashadism/substrate/helm/substrate \
 
 ### 3. This operator
 
-No published image yet. Build and push one first:
-
-```
-make docker-build IMG=<your-registry>/oc-substrate:<tag>
-docker push <your-registry>/oc-substrate:<tag>
-```
-
-Then install:
-
 ```
 helm install oc-substrate ./helm -n openchoreo-substrate --create-namespace \
-  --set image.repository=<your-registry>/oc-substrate \
-  --set image.tag=<tag> \
+  --set image.repository=ghcr.io/rashadism/oc-substrate \
+  --set image.tag=v0.1.0 \
   --set storageLocation=gs://<your-snapshot-bucket>/oc-substrate
 ```
 
