@@ -6,6 +6,8 @@ package fakeateapi
 import (
 	"context"
 	"net"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +26,28 @@ import (
 )
 
 type key struct{ atespace, name string }
+
+// listPageSize is deliberately small so tests exercise real pagination
+// (multiple List* round trips) instead of always seeing everything at once.
+const listPageSize = 2
+
+// paginate slices a name-sorted, already-filtered list by an index-encoded
+// page token, mirroring a real paginated RPC's contract.
+func paginate[T any](all []T, name func(T) string, token string) (page []T, next string, err error) {
+	sort.Slice(all, func(i, j int) bool { return name(all[i]) < name(all[j]) })
+	start := 0
+	if token != "" {
+		start, err = strconv.Atoi(token)
+		if err != nil || start < 0 || start > len(all) {
+			return nil, "", status.Error(codes.InvalidArgument, "invalid page_token")
+		}
+	}
+	end := min(start+listPageSize, len(all))
+	if end < len(all) {
+		next = strconv.Itoa(end)
+	}
+	return all[start:end], next, nil
+}
 
 type Server struct {
 	pb.UnimplementedControlServer
@@ -290,13 +314,17 @@ func (s *Server) ListActorTemplates(_ context.Context, req *pb.ListActorTemplate
 	if err := s.injected("ListActorTemplates"); err != nil {
 		return nil, err
 	}
-	resp := &pb.ListActorTemplatesResponse{}
+	var all []*pb.ActorTemplate
 	for k, t := range s.templates {
 		if req.GetAtespace() == "" || req.GetAtespace() == k.atespace {
-			resp.ActorTemplates = append(resp.ActorTemplates, clone(t))
+			all = append(all, clone(t))
 		}
 	}
-	return resp, nil
+	page, next, err := paginate(all, func(t *pb.ActorTemplate) string { return t.GetMetadata().GetName() }, req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.ListActorTemplatesResponse{ActorTemplates: page, NextPageToken: next}, nil
 }
 
 // DeleteActorTemplate does not check for referencing actors, like the real server.
@@ -366,13 +394,17 @@ func (s *Server) ListActors(_ context.Context, req *pb.ListActorsRequest) (*pb.L
 	if err := s.injected("ListActors"); err != nil {
 		return nil, err
 	}
-	resp := &pb.ListActorsResponse{}
+	var all []*pb.Actor
 	for k, a := range s.actors {
 		if req.GetAtespace() == "" || req.GetAtespace() == k.atespace {
-			resp.Actors = append(resp.Actors, clone(a))
+			all = append(all, clone(a))
 		}
 	}
-	return resp, nil
+	page, next, err := paginate(all, func(a *pb.Actor) string { return a.GetMetadata().GetName() }, req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.ListActorsResponse{Actors: page, NextPageToken: next}, nil
 }
 
 func (s *Server) UpdateActor(_ context.Context, req *pb.UpdateActorRequest) (*pb.Actor, error) {

@@ -64,16 +64,17 @@ func (s *Snapshot) Allowed(cell string) []netip.Prefix {
 	byNS := map[string][]policy{}
 	named := map[string]bool{}
 	for _, np := range s.Policies {
-		if !strings.HasPrefix(np.Name, policyPrefix) {
-			continue
-		}
 		sel, err := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
 		if err != nil {
 			continue
 		}
 		admits := visibility.AdmitsCell(np, cell, cellLabels)
 		byNS[np.Namespace] = append(byNS[np.Namespace], policy{sel: sel, admits: admits})
-		named[np.Namespace+"/"+strings.TrimPrefix(np.Name, policyPrefix)] = admits
+		// The openchoreo-<component> convention also lets a selector-less
+		// Service (no pods to check directly) be resolved by name.
+		if strings.HasPrefix(np.Name, policyPrefix) {
+			named[np.Namespace+"/"+strings.TrimPrefix(np.Name, policyPrefix)] = admits
+		}
 	}
 
 	// A pod selected by component policies is reachable only if one admits the cell.

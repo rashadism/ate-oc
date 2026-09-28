@@ -10,15 +10,12 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
 	"github.com/rashadism/oc-substrate/internal/compile"
@@ -38,9 +35,7 @@ const (
 	revisionHistory = 3
 	maxRevisions    = 10
 	goldenPoll      = 2 * time.Second
-
-	secretRefIndex    = "spec.secretRefs"
-	configMapRefIndex = "spec.configMapRefs"
+	refResync       = 5 * time.Minute
 )
 
 // ImageResolver pins an image reference to its digest.
@@ -61,7 +56,7 @@ type ActorTemplateReconciler struct {
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get
 // +kubebuilder:rbac:groups=ate.dev,resources=workerpools,verbs=get;list;watch
 
 func (r *ActorTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -160,6 +155,9 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 		rev.Ready = true
 		at.Status.LatestReadyRevision = compiled.Hash
 		setCond(at, CondReady, true, "GoldenReady", "")
+		// Secret/ConfigMap refs aren't watched (uncached, namespace-scoped reads
+		// only), so a periodic resync is what picks up rotations.
+		result.RequeueAfter = refResync
 	case golden.GetErrorMessage() != "":
 		rev.Message = golden.GetErrorMessage()
 		setCond(at, CondReady, false, "GoldenFailed", rev.Message)
@@ -212,18 +210,12 @@ func (r *ActorTemplateReconciler) resolveImages(ctx context.Context, at *substra
 	return out, nil
 }
 
+// finalize never calls Substrate: it releases immediately, so RenderedRelease
+// teardown is never blocked. Revisions this identity owns stay in Substrate
+// until the orphan scanner sweeps the ones no live actor references.
 func (r *ActorTemplateReconciler) finalize(ctx context.Context, at *substratev1alpha1.ActorTemplate) error {
 	if !controllerutil.ContainsFinalizer(at, Finalizer) {
 		return nil
-	}
-	// Fast path: never block deletion on Substrate. Revisions still referenced
-	// (including by retained actors) stay and are swept once unreferenced.
-	if id, err := naming.IdentityFromLabels(at.Labels); err == nil {
-		at.Status.Revisions = nil
-		at.Status.DesiredRevision, at.Status.LatestReadyRevision = "", ""
-		if err := r.collect(ctx, at, id); err != nil {
-			logf.FromContext(ctx).Info("revision cleanup deferred to sweeper", "err", err)
-		}
 	}
 	controllerutil.RemoveFinalizer(at, Finalizer)
 	return r.Update(ctx, at)
@@ -301,23 +293,17 @@ func (r *ActorTemplateReconciler) collect(ctx context.Context, at *substratev1al
 	}
 
 	prefix := id.TemplateRevisionPrefix()
-	var token string
-	for {
-		resp, err := r.Ate.ListActorTemplates(ctx, &pb.ListActorTemplatesRequest{Atespace: at.Namespace, PageToken: token})
-		if err != nil {
+	templates, err := listAllActorTemplates(ctx, r.Ate, at.Namespace)
+	if err != nil {
+		return err
+	}
+	for _, t := range templates {
+		name := t.GetMetadata().GetName()
+		if !strings.HasPrefix(name, prefix) || keep[name] || referenced[name] {
+			continue
+		}
+		if err := r.deleteRevision(ctx, at.Namespace, t.GetMetadata()); err != nil {
 			return err
-		}
-		for _, t := range resp.GetActorTemplates() {
-			name := t.GetMetadata().GetName()
-			if !strings.HasPrefix(name, prefix) || keep[name] || referenced[name] {
-				continue
-			}
-			if err := r.deleteRevision(ctx, at.Namespace, t.GetMetadata()); err != nil {
-				return err
-			}
-		}
-		if token = resp.GetNextPageToken(); token == "" {
-			break
 		}
 	}
 	at.Status.Revisions = slices.DeleteFunc(at.Status.Revisions, func(rev substratev1alpha1.TemplateRevision) bool {
@@ -327,20 +313,15 @@ func (r *ActorTemplateReconciler) collect(ctx context.Context, at *substratev1al
 }
 
 func (r *ActorTemplateReconciler) referencedTemplates(ctx context.Context, atespace string) (map[string]bool, error) {
-	refs := map[string]bool{}
-	var token string
-	for {
-		resp, err := r.Ate.ListActors(ctx, &pb.ListActorsRequest{Atespace: atespace, PageToken: token})
-		if err != nil {
-			return nil, err
-		}
-		for _, a := range resp.GetActors() {
-			refs[a.GetActorTemplate().GetName()] = true
-		}
-		if token = resp.GetNextPageToken(); token == "" {
-			return refs, nil
-		}
+	actors, err := listAllActors(ctx, r.Ate, atespace)
+	if err != nil {
+		return nil, err
 	}
+	refs := make(map[string]bool, len(actors))
+	for _, a := range actors {
+		refs[a.GetActorTemplate().GetName()] = true
+	}
+	return refs, nil
 }
 
 // recordRevision puts rev first in the status history, newest first.
@@ -363,59 +344,9 @@ func setCond(at *substratev1alpha1.ActorTemplate, t string, ok bool, reason, msg
 	})
 }
 
-func refNames(at *substratev1alpha1.ActorTemplate, secret bool) []string {
-	var out []string
-	for _, c := range at.Spec.Containers {
-		for _, src := range c.EnvFrom {
-			if secret && src.SecretRef != nil {
-				out = append(out, src.SecretRef.Name)
-			}
-			if !secret && src.ConfigMapRef != nil {
-				out = append(out, src.ConfigMapRef.Name)
-			}
-		}
-		for _, e := range c.Env {
-			if e.ValueFrom == nil {
-				continue
-			}
-			if secret && e.ValueFrom.SecretKeyRef != nil {
-				out = append(out, e.ValueFrom.SecretKeyRef.Name)
-			}
-			if !secret && e.ValueFrom.ConfigMapKeyRef != nil {
-				out = append(out, e.ValueFrom.ConfigMapKeyRef.Name)
-			}
-		}
-	}
-	return out
-}
-
 func (r *ActorTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	idx := mgr.GetFieldIndexer()
-	for field, secret := range map[string]bool{secretRefIndex: true, configMapRefIndex: false} {
-		if err := idx.IndexField(context.Background(), &substratev1alpha1.ActorTemplate{}, field, func(o client.Object) []string {
-			return refNames(o.(*substratev1alpha1.ActorTemplate), secret)
-		}); err != nil {
-			return err
-		}
-	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&substratev1alpha1.ActorTemplate{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.referencing(secretRefIndex))).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.referencing(configMapRefIndex))).
 		Named("actortemplate").
 		Complete(r)
-}
-
-func (r *ActorTemplateReconciler) referencing(field string) handler.MapFunc {
-	return func(ctx context.Context, o client.Object) []ctrl.Request {
-		var list substratev1alpha1.ActorTemplateList
-		if err := r.List(ctx, &list, client.InNamespace(o.GetNamespace()), client.MatchingFields{field: o.GetName()}); err != nil {
-			return nil
-		}
-		reqs := make([]ctrl.Request, 0, len(list.Items))
-		for _, at := range list.Items {
-			reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&at)})
-		}
-		return reqs
-	}
 }

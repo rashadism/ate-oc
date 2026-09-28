@@ -2,6 +2,7 @@ package frontdoor
 
 import (
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,11 +13,15 @@ import (
 	"github.com/rashadism/oc-substrate/api/v1alpha1"
 )
 
-func pod(ns, name, ip string, labels map[string]string, phase corev1.PodPhase) *corev1.Pod {
-	return &corev1.Pod{
+func pod(ns, name, ip string, labels map[string]string, phase corev1.PodPhase, mutate ...func(*corev1.Pod)) *corev1.Pod {
+	p := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, Labels: labels},
 		Status:     corev1.PodStatus{Phase: phase, PodIP: ip, PodIPs: []corev1.PodIP{{IP: ip}}},
 	}
+	for _, m := range mutate {
+		m(p)
+	}
+	return p
 }
 
 func TestClusterDirectory(t *testing.T) {
@@ -29,6 +34,20 @@ func TestClusterDirectory(t *testing.T) {
 		pod(cellA, "app", "10.1.0.3", nil, corev1.PodRunning),
 		pod(cellB, "done", "10.1.0.4", nil, corev1.PodSucceeded),
 		pod("ate-system", "router", "10.1.0.5", map[string]string{"app": "atenet-router"}, corev1.PodRunning),
+		pod(cellB, "terminating", "10.1.0.6", nil, corev1.PodRunning, func(p *corev1.Pod) {
+			now := metav1.Now()
+			p.DeletionTimestamp = &now
+			p.Finalizers = []string{"test/keep"}
+		}),
+		// cellB sorts before cellA, so a scan that just took the first list
+		// match would pick this stale pod; only the creation-time tie-break
+		// picks the pod that actually owns the IP now.
+		pod(cellB, "stale-owner", "10.1.0.7", nil, corev1.PodRunning, func(p *corev1.Pod) {
+			p.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
+		}),
+		pod(cellA, "current-owner", "10.1.0.7", nil, corev1.PodRunning, func(p *corev1.Pod) {
+			p.CreationTimestamp = metav1.Now()
+		}),
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: cellA, Labels: map[string]string{LabelNamespace: "acme"}}},
 		&v1alpha1.Actor{
 			ObjectMeta: metav1.ObjectMeta{Namespace: cellA, Name: "orders-dev-1234"},
@@ -63,6 +82,8 @@ func TestClusterDirectory(t *testing.T) {
 		"10.1.0.4": {},
 		"10.1.0.5": {Kind: CallerPod, Namespace: "ate-system"},
 		"10.9.9.9": {},
+		"10.1.0.6": {},
+		"10.1.0.7": {Kind: CallerPod, Namespace: cellA},
 	}
 	for ip, want := range callers {
 		if got := d.Caller(ip); got != want {

@@ -89,14 +89,37 @@ func (r *RetainedActorReconciler) purge(ctx context.Context, ra *substratev1alph
 	if !controllerutil.ContainsFinalizer(ra, Finalizer) {
 		return nil
 	}
+	// Re-read right before the destructive call: a reattach racing this purge
+	// releases the entry (annotation + finalizer removal) from a different
+	// controller, and that write may have landed after ra was first fetched.
+	if err := r.Get(ctx, client.ObjectKeyFromObject(ra), ra); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if ra.Annotations[substratev1alpha1.ReleasedAnnotation] == "true" {
+		return releaseRetained(ctx, r.Client, ra)
+	}
+
 	_, err := r.Ate.DeleteActor(ctx, &pb.DeleteActorRequest{
 		Actor:    actorRef(ra.Spec.Atespace, ra.Spec.ActorName),
 		AnyState: true,
 		Options:  &pb.DeleteOptions{Uid: ra.Spec.ActorUID},
 	})
-	// Aborted on a uid mismatch: a newer incarnation is not ours to delete.
-	uidMismatch := ra.Spec.ActorUID != "" && isCode(err, codes.Aborted)
-	if err != nil && !isCode(err, codes.NotFound) && !uidMismatch {
+	if isCode(err, codes.Aborted) {
+		// Aborted also covers plain lease contention; only a confirmed uid
+		// difference means a newer incarnation is not ours to delete.
+		a, gerr := r.Ate.GetActor(ctx, &pb.GetActorRequest{Actor: actorRef(ra.Spec.Atespace, ra.Spec.ActorName)})
+		switch {
+		case isCode(gerr, codes.NotFound):
+			err = nil
+		case gerr != nil:
+			return fmt.Errorf("delete actor: %w", gerr)
+		case ra.Spec.ActorUID != "" && a.GetMetadata().GetUid() != ra.Spec.ActorUID:
+			err = nil
+		default:
+			return fmt.Errorf("delete actor: %w", err)
+		}
+	}
+	if err != nil && !isCode(err, codes.NotFound) {
 		return fmt.Errorf("delete actor: %w", err)
 	}
 	if err := r.collectRevisions(ctx, ra); err != nil {
@@ -119,19 +142,19 @@ func (r *RetainedActorReconciler) collectRevisions(ctx context.Context, ra *subs
 			return nil
 		}
 	}
-	referenced := map[string]bool{}
-	actors, err := r.Ate.ListActors(ctx, &pb.ListActorsRequest{Atespace: ra.Spec.Atespace})
+	actors, err := listAllActors(ctx, r.Ate, ra.Spec.Atespace)
 	if err != nil {
 		return err
 	}
-	for _, a := range actors.GetActors() {
+	referenced := make(map[string]bool, len(actors))
+	for _, a := range actors {
 		referenced[a.GetActorTemplate().GetName()] = true
 	}
-	resp, err := r.Ate.ListActorTemplates(ctx, &pb.ListActorTemplatesRequest{Atespace: ra.Spec.Atespace})
+	templateRevisions, err := listAllActorTemplates(ctx, r.Ate, ra.Spec.Atespace)
 	if err != nil {
 		return err
 	}
-	for _, t := range resp.GetActorTemplates() {
+	for _, t := range templateRevisions {
 		m := t.GetMetadata()
 		if !strings.HasPrefix(m.GetName(), prefix) || referenced[m.GetName()] {
 			continue
@@ -155,8 +178,10 @@ func (r *RetainedActorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // OrphanScanner retains operator-named actors that have neither an Actor CR
-// nor a RetainedActor entry, e.g. when a finalizer was force-removed. It
-// never deletes anything directly.
+// nor a RetainedActor entry, e.g. when a finalizer was force-removed. It also
+// sweeps template revisions the fast-path ActorTemplate finalizer leaves
+// behind: once no live ActorTemplate CR owns them and no actor references
+// them, they are deleted here instead of in the finalizer.
 type OrphanScanner struct {
 	client.Client
 	Ate          pb.ControlClient
@@ -197,11 +222,11 @@ func (s *OrphanScanner) Scan(ctx context.Context) error {
 }
 
 func (s *OrphanScanner) scanAtespace(ctx context.Context, atespace string) error {
-	actors, err := s.Ate.ListActors(ctx, &pb.ListActorsRequest{Atespace: atespace})
+	actors, err := listAllActors(ctx, s.Ate, atespace)
 	if err != nil {
 		return err
 	}
-	for _, a := range actors.GetActors() {
+	for _, a := range actors {
 		name := a.GetMetadata().GetName()
 		if !naming.IsActorName(name) {
 			continue
@@ -227,5 +252,53 @@ func (s *OrphanScanner) scanAtespace(ctx context.Context, atespace string) error
 		}
 		logr.FromContextOrDiscard(ctx).Info("retained orphaned actor", "atespace", atespace, "actor", name)
 	}
+	return s.sweepTemplates(ctx, atespace, actors)
+}
+
+// sweepTemplates deletes template revisions whose ActorTemplate CR is gone
+// and that no actor references. A CR that still exists keeps managing its
+// own revision history, so its identities are left alone here.
+func (s *OrphanScanner) sweepTemplates(ctx context.Context, atespace string, actors []*pb.Actor) error {
+	var crs substratev1alpha1.ActorTemplateList
+	if err := s.List(ctx, &crs, client.InNamespace(atespace)); err != nil {
+		return err
+	}
+	owned := make([]string, 0, len(crs.Items))
+	for _, at := range crs.Items {
+		if id, err := naming.IdentityFromLabels(at.Labels); err == nil {
+			owned = append(owned, id.TemplateRevisionPrefix())
+		}
+	}
+	referenced := make(map[string]bool, len(actors))
+	for _, a := range actors {
+		referenced[a.GetActorTemplate().GetName()] = true
+	}
+	templates, err := listAllActorTemplates(ctx, s.Ate, atespace)
+	if err != nil {
+		return err
+	}
+	for _, t := range templates {
+		m := t.GetMetadata()
+		name := m.GetName()
+		if referenced[name] || hasAnyPrefix(name, owned) {
+			continue
+		}
+		_, err := s.Ate.DeleteActorTemplate(ctx, &pb.DeleteActorTemplateRequest{
+			ActorTemplate: actorRef(atespace, name),
+			Options:       &pb.DeleteOptions{Uid: m.GetUid()},
+		})
+		if ignoreCodes(err, codes.NotFound) != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func hasAnyPrefix(name string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }

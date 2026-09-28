@@ -122,6 +122,12 @@ func main() {
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
 			&corev1.Pod{}: {Transform: controller.TrimPod},
 		}},
+		// Secrets and ConfigMaps are read one at a time, by name, from the
+		// namespace an ActorTemplate CR names; nothing lists or watches them
+		// cluster-wide, so they never populate the shared cache.
+		Client: client.Options{Cache: &client.CacheOptions{
+			DisableFor: []client.Object{&corev1.Secret{}, &corev1.ConfigMap{}},
+		}},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")

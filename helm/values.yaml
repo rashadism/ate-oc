@@ -13,6 +13,9 @@ ateapi:
 # Namespace Substrate is installed in.
 ateSystemNamespace: ate-system
 
+# Namespace Substrate's privileged worker pools run in.
+workerPoolNamespace: ate-workers
+
 # Restricts ateapi ingress to Substrate's own components and this operator.
 # ateapi authenticates mTLS peers but does not authorize them.
 ateapiLockdown:

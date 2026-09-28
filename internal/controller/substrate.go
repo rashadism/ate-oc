@@ -58,3 +58,35 @@ func stateName(s pb.ActorState) string {
 	}
 	return n
 }
+
+// listAllActors pages through every Actor in atespace.
+func listAllActors(ctx context.Context, ate pb.ControlClient, atespace string) ([]*pb.Actor, error) {
+	var out []*pb.Actor
+	var token string
+	for {
+		resp, err := ate.ListActors(ctx, &pb.ListActorsRequest{Atespace: atespace, PageToken: token})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resp.GetActors()...)
+		if token = resp.GetNextPageToken(); token == "" {
+			return out, nil
+		}
+	}
+}
+
+// listAllActorTemplates pages through every ActorTemplate revision in atespace.
+func listAllActorTemplates(ctx context.Context, ate pb.ControlClient, atespace string) ([]*pb.ActorTemplate, error) {
+	var out []*pb.ActorTemplate
+	var token string
+	for {
+		resp, err := ate.ListActorTemplates(ctx, &pb.ListActorTemplatesRequest{Atespace: atespace, PageToken: token})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, resp.GetActorTemplates()...)
+		if token = resp.GetNextPageToken(); token == "" {
+			return out, nil
+		}
+	}
+}

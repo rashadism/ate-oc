@@ -41,4 +41,25 @@ spec:
           podSelector:
             matchLabels: {app: atenet-egress}
     - ports: [{port: 8081, protocol: TCP}]
+      from:
+        - namespaceSelector:
+            matchExpressions: [{key: openchoreo.dev/environment, operator: Exists}]
+        - namespaceSelector: {}
+          podSelector:
+            matchExpressions: [{key: openchoreo.dev/system-component, operator: Exists}]
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: {{ .Values.ateSystemNamespace }}}
+          podSelector:
+            matchLabels: {app: atenet-egress}
+---
+# Substrate's per-WorkerPool policy already admits only the router; this
+# denies everything else by default, the way every other cell already is.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oc-substrate-workers-default-deny
+  namespace: {{ .Values.workerPoolNamespace }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
 {{- end }}

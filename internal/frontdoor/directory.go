@@ -62,7 +62,8 @@ func TrimPod(o any) (any, error) {
 	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, Labels: p.Labels,
-			ResourceVersion: p.ResourceVersion, UID: p.UID},
+			ResourceVersion: p.ResourceVersion, UID: p.UID,
+			CreationTimestamp: p.CreationTimestamp, DeletionTimestamp: p.DeletionTimestamp},
 		Spec:   corev1.PodSpec{HostNetwork: p.Spec.HostNetwork},
 		Status: corev1.PodStatus{PodIP: p.Status.PodIP, PodIPs: p.Status.PodIPs, Phase: p.Status.Phase},
 	}, nil
@@ -86,21 +87,29 @@ func (d *ClusterDirectory) caller(r client.Reader, ip string) Caller {
 	if err := r.List(context.Background(), &pods, client.MatchingFields{podIPIndex: ip}); err != nil {
 		return Caller{}
 	}
-	for _, p := range pods.Items {
+	var owner *corev1.Pod
+	for i, p := range pods.Items {
 		if p.Spec.HostNetwork {
 			continue
 		}
-		// Finished pods may have handed their IP to a new pod.
-		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+		// Finished or terminating pods may have handed their IP to a new pod.
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed || !p.DeletionTimestamp.IsZero() {
 			continue
 		}
-		if p.Namespace == d.EgressNamespace && matches(p.Labels, d.EgressLabels) {
-			return Caller{Kind: CallerEgress, Namespace: p.Namespace}
+		// Kubernetes reuses IPs across pod churn; the newest pod is the
+		// current owner if more than one still indexes the same address.
+		if owner == nil || owner.CreationTimestamp.Before(&p.CreationTimestamp) {
+			owner = &pods.Items[i]
 		}
-		_, system := p.Labels[LabelSystemComponent]
-		return Caller{Kind: CallerPod, Namespace: p.Namespace, SystemComponent: system}
 	}
-	return Caller{}
+	if owner == nil {
+		return Caller{}
+	}
+	if owner.Namespace == d.EgressNamespace && matches(owner.Labels, d.EgressLabels) {
+		return Caller{Kind: CallerEgress, Namespace: owner.Namespace}
+	}
+	_, system := owner.Labels[LabelSystemComponent]
+	return Caller{Kind: CallerPod, Namespace: owner.Namespace, SystemComponent: system}
 }
 
 func (d *ClusterDirectory) Target(namespace, service string, port int32) (Target, bool) {

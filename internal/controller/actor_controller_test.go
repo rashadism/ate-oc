@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -313,6 +314,96 @@ func TestPurgeOnDeleteSparesNewerIncarnation(t *testing.T) {
 	}
 }
 
+// A DeleteActor Aborted also covers plain lease contention, not just a uid
+// mismatch; purge must retry rather than treat the entry as superseded.
+func TestPurgeRetriesOnLeaseContention(t *testing.T) {
+	e := deployed(t)
+	name := id.ActorName()
+	if err := e.actors.Delete(context.Background(), e.actorCR()); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileActor()
+	entryName := substratev1alpha1.RetainedActorName(ns, name)
+	e.reconcileRetained(entryName)
+	e.now = e.now.Add(25 * time.Hour)
+	e.reconcileRetained(entryName)
+
+	e.srv.FailNext("DeleteActor", codes.Aborted)
+	if _, err := e.retained.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: entryName}}); err == nil {
+		t.Fatal("a transient Aborted must be retried, not treated as a uid mismatch")
+	}
+	if e.retainedEntry(entryName) == nil {
+		t.Fatal("lease contention must not drop the entry")
+	}
+	if e.substrateActor(name) == nil {
+		t.Fatal("lease contention must not be treated as if the actor were already gone")
+	}
+}
+
+// purge is handed the RetainedActor as fetched by Reconcile; if a concurrent
+// reattach released the entry since then, it must re-check before deleting.
+func TestPurgeRereadsBeforeDeleting(t *testing.T) {
+	e := deployed(t)
+	name := id.ActorName()
+	if err := e.actors.Delete(context.Background(), e.actorCR()); err != nil {
+		t.Fatal(err)
+	}
+	e.reconcileActor()
+	entryName := substratev1alpha1.RetainedActorName(ns, name)
+	e.reconcileRetained(entryName)
+
+	stale := e.retainedEntry(entryName)
+
+	live := e.retainedEntry(entryName)
+	metav1.SetMetaDataAnnotation(&live.ObjectMeta, substratev1alpha1.ReleasedAnnotation, "true")
+	live.Finalizers = nil
+	if err := e.actors.Update(context.Background(), live); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.retained.purge(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	if e.retainedEntry(entryName) != nil {
+		t.Fatal("a released entry should still be dropped")
+	}
+	if e.substrateActor(name) == nil {
+		t.Fatal("a concurrently released entry must not be purged")
+	}
+}
+
+// collectRevisions must not stop at the first page of revisions either.
+func TestCollectRevisionsPaginates(t *testing.T) {
+	e := newEnv(t, true)
+	ctx := context.Background()
+	if _, err := e.ate.CreateAtespace(ctx, &pb.CreateAtespaceRequest{Atespace: &pb.Atespace{Metadata: &pb.ResourceMetadata{Name: ns}}}); err != nil {
+		t.Fatal(err)
+	}
+	prefix := naming.RevisionPrefixForActor(id.ActorName())
+	var extra []string
+	for _, h := range []string{"aaaaaaaa", "bbbbbbbb", "cccccccc", "dddddddd"} {
+		n := prefix + h
+		if _, err := e.ate.CreateActorTemplate(ctx, &pb.CreateActorTemplateRequest{ActorTemplate: &pb.ActorTemplate{
+			Metadata:      &pb.ResourceMetadata{Atespace: ns, Name: n},
+			SandboxConfig: &pb.SandboxConfig{SandboxClass: pb.SandboxClass_SANDBOX_CLASS_GVISOR, ConfigName: "gvisor-v1"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		extra = append(extra, n)
+	}
+
+	ra := &substratev1alpha1.RetainedActor{Spec: substratev1alpha1.RetainedActorSpec{Atespace: ns, ActorName: id.ActorName()}}
+	if err := e.retained.collectRevisions(ctx, ra); err != nil {
+		t.Fatal(err)
+	}
+	revs := e.revisions()
+	for _, n := range extra {
+		if _, ok := revs[n]; ok {
+			t.Fatalf("unreferenced revision %s should have been collected", n)
+		}
+	}
+}
+
 func TestExplicitPurge(t *testing.T) {
 	e := deployed(t)
 	name := id.ActorName()
@@ -454,6 +545,30 @@ func TestOrphanScan(t *testing.T) {
 	}
 	if e.retainedEntry(substratev1alpha1.RetainedActorName(ns, "my-counter-1")) != nil {
 		t.Fatal("actors the operator did not name are left alone")
+	}
+}
+
+// A scan must not stop at the first page of actors.
+func TestOrphanScanPaginates(t *testing.T) {
+	e := deployed(t)
+	var orphans []string
+	for i := range 4 {
+		o := naming.Identity{ComponentUID: fmt.Sprintf("gone-%d", i), EnvironmentUID: "gone"}.ActorName()
+		orphans = append(orphans, o)
+		if _, err := e.ate.CreateActor(context.Background(), &pb.CreateActorRequest{Actor: &pb.Actor{
+			Metadata:      &pb.ResourceMetadata{Atespace: ns, Name: o},
+			ActorTemplate: actorRef(ns, e.readyRevision()),
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.scanner.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range orphans {
+		if e.retainedEntry(substratev1alpha1.RetainedActorName(ns, o)) == nil {
+			t.Fatalf("orphan %s not retained", o)
+		}
 	}
 }
 

@@ -36,6 +36,20 @@ func componentPolicy(ns, component string, namespaceVisible bool) *networkingv1.
 	return np
 }
 
+// customPolicy is project-only, like componentPolicy, but under a name that
+// doesn't follow the openchoreo-<component> convention.
+func customPolicy(ns, component string) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: component + "-lockdown"},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"openchoreo.dev/component": component}},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{
+				{From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
+			},
+		},
+	}
+}
+
 func component(ns, name, ip string) Pod {
 	return Pod{Namespace: ns, Labels: map[string]string{"openchoreo.dev/component": name}, IPs: []netip.Addr{netip.MustParseAddr(ip)}}
 }
@@ -52,6 +66,7 @@ func snapshot() *Snapshot {
 			component(cellA, "web", "10.32.0.10"),
 			component(cellB, "invoices", "10.32.1.10"),
 			component(cellB, "ledger", "10.32.1.11"),
+			component(cellB, "finance", "10.32.1.13"),
 			{Namespace: cellB, Labels: map[string]string{"app": "postgres"}, IPs: []netip.Addr{netip.MustParseAddr("10.32.1.12")}},
 			{Namespace: "kube-system", Labels: map[string]string{"k8s-app": "kube-dns"}, IPs: []netip.Addr{netip.MustParseAddr("10.32.2.2")}},
 		},
@@ -63,6 +78,7 @@ func snapshot() *Snapshot {
 			svc(cellB, "postgres", "34.118.225.13", map[string]string{"app": "postgres"}),
 			svc(cellB, "agent", "34.118.225.14", nil),
 			svc(cellB, "helper", "34.118.225.15", nil),
+			svc(cellB, "finance", "34.118.225.16", map[string]string{"openchoreo.dev/component": "finance"}),
 			svc("kube-system", "kube-dns", "34.118.224.53", map[string]string{"k8s-app": "kube-dns"}),
 		},
 		Policies: []*networkingv1.NetworkPolicy{
@@ -71,6 +87,7 @@ func snapshot() *Snapshot {
 			componentPolicy(cellB, "ledger", false),
 			componentPolicy(cellB, "agent", false),
 			componentPolicy(cellB, "helper", true),
+			customPolicy(cellB, "finance"),
 		},
 		NamespaceLabels: map[string]map[string]string{
 			cellA: org, cellB: org,
@@ -110,6 +127,8 @@ func TestAllowed(t *testing.T) {
 		{name: "namespace-visible service, same org", ip: "34.118.225.10", fromA: true},
 		{name: "project-only component in another cell", ip: "10.32.1.11"},
 		{name: "project-only service in another cell", ip: "34.118.225.11"},
+		{name: "pod behind a non-conventionally-named policy", ip: "10.32.1.13"},
+		{name: "service behind a non-conventionally-named policy", ip: "34.118.225.16"},
 		{name: "another service selecting a protected pod", ip: "34.118.225.12"},
 		{name: "resource pod without a policy", ip: "10.32.1.12", fromA: true, fromX: true},
 		{name: "resource service", ip: "34.118.225.13", fromA: true, fromX: true},

@@ -68,12 +68,6 @@ func build(t *testing.T, golden bool, objs ...client.Object) *env {
 		WithIndex(&substratev1alpha1.Actor{}, templateRefIndex, func(o client.Object) []string {
 			return []string{o.(*substratev1alpha1.Actor).Spec.TemplateRef.Name}
 		}).
-		WithIndex(&substratev1alpha1.ActorTemplate{}, secretRefIndex, func(o client.Object) []string {
-			return refNames(o.(*substratev1alpha1.ActorTemplate), true)
-		}).
-		WithIndex(&substratev1alpha1.ActorTemplate{}, configMapRefIndex, func(o client.Object) []string {
-			return refNames(o.(*substratev1alpha1.ActorTemplate), false)
-		}).
 		WithObjects(objs...).Build()
 
 	opts := []fakeateapi.Option{
@@ -154,12 +148,12 @@ func (e *env) update(mutate func(*substratev1alpha1.ActorTemplate)) {
 
 func (e *env) revisions() map[string]*pb.ActorTemplate {
 	e.t.Helper()
-	resp, err := e.ate.ListActorTemplates(context.Background(), &pb.ListActorTemplatesRequest{Atespace: ns})
+	all, err := listAllActorTemplates(context.Background(), e.ate, ns)
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	out := map[string]*pb.ActorTemplate{}
-	for _, t := range resp.GetActorTemplates() {
+	for _, t := range all {
 		out[t.GetMetadata().GetName()] = t
 	}
 	return out
@@ -210,7 +204,7 @@ func TestCreatesRevisionAndWaitsForGolden(t *testing.T) {
 
 	e.srv.SetGolden(ns, name, "")
 	res, err = e.reconcile()
-	if err != nil || res.RequeueAfter != 0 {
+	if err != nil || res.RequeueAfter != refResync {
 		t.Fatalf("res=%v err=%v", res, err)
 	}
 	at = e.get()
@@ -317,9 +311,6 @@ func TestUnresolvedSecret(t *testing.T) {
 	if err := e.r.Create(context.Background(), secret); err != nil {
 		t.Fatal(err)
 	}
-	if reqs := e.r.referencing(secretRefIndex)(context.Background(), secret); len(reqs) != 1 || reqs[0].NamespacedName != key {
-		t.Fatalf("secret change maps to %v", reqs)
-	}
 	if _, err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +391,7 @@ func TestSchedulable(t *testing.T) {
 	}
 }
 
+// The finalizer never calls Substrate, so it releases even with ateapi down.
 func TestDeleteReleasesImmediately(t *testing.T) {
 	e := newEnv(t, true, actorTemplate())
 	if _, err := e.reconcile(); err != nil {
@@ -429,34 +421,47 @@ func TestDeleteReleasesImmediately(t *testing.T) {
 	if err := e.r.Get(context.Background(), key, &at); client.IgnoreNotFound(err) != nil || err == nil {
 		t.Fatalf("ActorTemplate should be gone, err=%v", err)
 	}
-	if len(e.revisions()) != 2 {
-		t.Fatal("with ateapi unavailable, revisions are left for the sweeper")
+	revs := e.revisions()
+	if _, ok := revs[referenced]; !ok {
+		t.Fatal("referenced revision should still exist")
 	}
+	if _, ok := revs[unreferenced]; !ok {
+		t.Fatal("the finalizer must not have touched Substrate; the injected failure was never consumed")
+	}
+}
 
-	e2 := newEnv(t, true, actorTemplate())
-	if _, err := e2.reconcile(); err != nil {
+// The orphan scanner, not the finalizer, collects revisions an ActorTemplate
+// CR no longer owns once no actor references them.
+func TestOrphanScannerSweepsUnreferencedRevisions(t *testing.T) {
+	e := newEnv(t, true, actorTemplate())
+	if _, err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
-	ref2 := id.TemplateRevisionName(e2.get().Status.DesiredRevision)
-	if _, err := e2.ate.CreateActor(context.Background(), &pb.CreateActorRequest{Actor: &pb.Actor{
+	referenced := id.TemplateRevisionName(e.get().Status.DesiredRevision)
+	if _, err := e.ate.CreateActor(context.Background(), &pb.CreateActorRequest{Actor: &pb.Actor{
 		Metadata:      &pb.ResourceMetadata{Atespace: ns, Name: id.ActorName()},
-		ActorTemplate: &pb.ObjectRef{Atespace: ns, Name: ref2},
+		ActorTemplate: &pb.ObjectRef{Atespace: ns, Name: referenced},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	e2.update(func(at *substratev1alpha1.ActorTemplate) { at.Spec.Containers[0].Image = image2 })
-	if _, err := e2.reconcile(); err != nil {
+	e.update(func(at *substratev1alpha1.ActorTemplate) { at.Spec.Containers[0].Image = image2 })
+	if _, err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
-	if err := e2.r.Delete(context.Background(), e2.get()); err != nil {
+	unreferenced := id.TemplateRevisionName(e.get().Status.DesiredRevision)
+
+	if err := e.r.Delete(context.Background(), e.get()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e2.reconcile(); err != nil {
+	if _, err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
-	revs := e2.revisions()
-	if _, ok := revs[ref2]; !ok || len(revs) != 1 {
-		t.Fatalf("only the retained actor's revision should remain, got %d (unreferenced=%s)", len(revs), unreferenced)
+	if err := e.scanner.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	revs := e.revisions()
+	if _, ok := revs[referenced]; !ok || len(revs) != 1 {
+		t.Fatalf("the sweep should collect %s and keep %s, got %v", unreferenced, referenced, revs)
 	}
 }
 
