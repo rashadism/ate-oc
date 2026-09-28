@@ -17,9 +17,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
-	"github.com/rashadism/oc-substrate/internal/naming"
-	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
+	substratev1alpha1 "github.com/rashadism/ate-oc/api/v1alpha1"
+	"github.com/rashadism/ate-oc/internal/naming"
+	pb "github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 const retainedPoll = 30 * time.Second

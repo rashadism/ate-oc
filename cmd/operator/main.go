@@ -20,10 +20,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
-	"github.com/rashadism/oc-substrate/internal/ateclient"
-	"github.com/rashadism/oc-substrate/internal/controller"
-	"github.com/rashadism/oc-substrate/internal/registry"
+	substratev1alpha1 "github.com/rashadism/ate-oc/api/v1alpha1"
+	"github.com/rashadism/ate-oc/internal/ateclient"
+	"github.com/rashadism/ate-oc/internal/controller"
+	"github.com/rashadism/ate-oc/internal/registry"
 )
 
 var (

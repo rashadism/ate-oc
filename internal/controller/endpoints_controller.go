@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
+	substratev1alpha1 "github.com/rashadism/ate-oc/api/v1alpha1"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rashadism/oc-substrate/api/v1alpha1"
+	"github.com/rashadism/ate-oc/api/v1alpha1"
 )
 
 const (

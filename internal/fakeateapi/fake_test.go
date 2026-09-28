@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/rashadism/oc-substrate/internal/ateclient"
-	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
+	"github.com/rashadism/ate-oc/internal/ateclient"
+	pb "github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 const (

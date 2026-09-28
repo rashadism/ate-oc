@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
+	pb "github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 func egressObjects() []client.Object {

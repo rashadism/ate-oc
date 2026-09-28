@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
-	"github.com/rashadism/oc-substrate/third_party/ateapipb"
+	"github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 const serverName = "api.ate-system.svc"

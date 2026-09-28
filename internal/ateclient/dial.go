@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/rashadism/oc-substrate/third_party/ateapipb"
+	"github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 const roundRobinServiceConfig = `{"loadBalancingConfig": [{"round_robin":{}}]}`

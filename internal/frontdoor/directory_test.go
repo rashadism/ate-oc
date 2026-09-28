@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/rashadism/oc-substrate/api/v1alpha1"
+	"github.com/rashadism/ate-oc/api/v1alpha1"
 )
 
 func pod(ns, name, ip string, labels map[string]string, phase corev1.PodPhase, mutate ...func(*corev1.Pod)) *corev1.Pod {

@@ -1,4 +1,4 @@
-module github.com/rashadism/oc-substrate
+module github.com/rashadism/ate-oc
 
 go 1.26.3
 

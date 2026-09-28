@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
+	pb "github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 const (

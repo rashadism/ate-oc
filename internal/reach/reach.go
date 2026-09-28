@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/rashadism/oc-substrate/internal/visibility"
+	"github.com/rashadism/ate-oc/internal/visibility"
 )
 
 // loopback is never a valid destination for actor traffic.

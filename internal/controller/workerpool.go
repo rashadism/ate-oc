@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	substratev1alpha1 "github.com/rashadism/oc-substrate/api/v1alpha1"
+	substratev1alpha1 "github.com/rashadism/ate-oc/api/v1alpha1"
 )
 
 var workerPoolListGVK = schema.GroupVersionKind{Group: "ate.dev", Version: "v1alpha1", Kind: "WorkerPoolList"}

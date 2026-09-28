@@ -22,7 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/apimachinery/pkg/util/uuid"
 
-	pb "github.com/rashadism/oc-substrate/third_party/ateapipb"
+	pb "github.com/rashadism/ate-oc/third_party/ateapipb"
 )
 
 type key struct{ atespace, name string }
