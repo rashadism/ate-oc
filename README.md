@@ -13,6 +13,10 @@ Agent Substrate identifies pods with Kubernetes' `PodCertificateRequest`/`Cluste
     --enable-kubernetes-unstable-apis=certificates.k8s.io/v1beta1/podcertificaterequests,certificates.k8s.io/v1beta1/clustertrustbundles
   ```
 - **Auto-upgrade off, and no spot/preemptible nodes, on any node pool that runs workers.** A worker pod's actors get a 30-minute grace window to suspend when their pod is deleted; one still running when that window closes goes to a terminal `CRASHED` state with no recovery path. Auto-upgrade is the main trigger since GKE enables it by default on Google's own schedule, not yours.
+- **Every worker node labeled `ate.dev/substrate-version=<image tag>`** (e.g. `v0.2.0`) before installing Agent Substrate. Its node-level supervisor schedules by this label and nothing applies it automatically:
+  ```
+  kubectl label node <node-name> ate.dev/substrate-version=v0.2.0
+  ```
 
 ## Install
 
@@ -31,14 +35,25 @@ helm install substrate oci://ghcr.io/rashadism/substrate/helm/substrate \
 
 ### 3. This operator
 
+The default chart bundles its own S3-compatible object store for snapshots
+(`rustfs`), which creates one fixed bucket named `ate-snapshots`.
+`storageLocation` needs to point at that exact bucket, not a bucket you
+create yourself; the `gs://` scheme is cosmetic, only the bucket name
+matters:
+
 ```
 helm install oc-substrate ./helm -n openchoreo-substrate --create-namespace \
-  --set storageLocation=gs://<your-snapshot-bucket>/oc-substrate
+  --set storageLocation=gs://ate-snapshots/oc-substrate
 ```
 
 This also installs the `proxy/substrate-actor` `ClusterComponentType` the sample below uses. No separate step for it.
 
 ### 4. A sample component
+
+The image below (`demo-counter`) is Agent Substrate's own upstream sample
+app, not something this repo ships. It's published here only because
+building a release from our `rashadism/substrate` fork rebuilds everything
+upstream's own Makefile builds, demos included.
 
 ```yaml
 apiVersion: openchoreo.dev/v1alpha1
@@ -98,7 +113,12 @@ is normal: an actor warm and waiting, not idle.
 The default install gives 3 workers at 1 CPU/1Gi each, and an actor defaults
 to 500m/512Mi, so 2 actors fit per worker: 6 actors is full capacity.
 Deploying more components than that is the actual demo, since it shows what
-happens at the ceiling, not just that things fit.
+happens at the ceiling, not just that things fit. Remove the sample from
+step 4 first, so it doesn't quietly hold one of the 6 slots:
+
+```
+kubectl delete -f counter.yaml --ignore-not-found
+```
 
 Deploy 10:
 
@@ -120,21 +140,35 @@ for i in $(seq 1 10); do
 done
 ```
 
-The first 6 to get traffic return `200`; the rest return `503` ("no free
-workers available"), because capacity is full. `kubectl ate get workers`
-shows all 3 workers at `2/2`.
+6 return `200`, the rest return `503` ("no free workers available"). Which
+6 isn't determined by number: it depends on scheduling timing, not which
+component you deployed first, so don't expect `counter-1` through
+`counter-6` specifically. `kubectl ate get workers` shows all 3 workers at
+`2/2`.
 
-Now free a slot and watch a previously-denied one take it:
+Now free a slot and watch a previously-denied one take it. Find one of each
+first, since which is which varies run to run:
 
 ```
-kubectl patch releasebinding counter-1-development -n default --type merge \
+RUNNING=$(kubectl get actor -A -o jsonpath='{range .items[?(@.status.state=="RUNNING")]}{.metadata.name}{"\n"}{end}' \
+  | grep '^counter-' | head -1 | sed 's/-development-.*//')
+DENIED=$(kubectl get actor -A -o jsonpath='{range .items[?(@.status.state=="SUSPENDED")]}{.metadata.name}{"\n"}{end}' \
+  | grep '^counter-' | head -1 | sed 's/-development-.*//')
+echo "pausing $RUNNING, retrying $DENIED"
+
+kubectl patch releasebinding "$RUNNING-development" -n default --type merge \
   -p '{"spec":{"componentTypeEnvironmentConfigs":{"resources":{"cpu":"500m","memory":"512Mi"},"paused":true}}}'
 
-# wait a few seconds for it to actually suspend, then:
-curl -sk "https://$HOST$PATH_PREFIX/"   # HOST/PATH_PREFIX for counter-7, or any that got 503
+sleep 5   # give it a few seconds to actually suspend
+
+HOST=$(kubectl get releasebinding "$DENIED-development" -n default \
+  -o jsonpath='{.status.endpoints[0].externalURLs.http.host}')
+PATH_PREFIX=$(kubectl get releasebinding "$DENIED-development" -n default \
+  -o jsonpath='{.status.endpoints[0].externalURLs.http.path}')
+curl -sk "https://$HOST$PATH_PREFIX/"
 ```
 
-That last call now succeeds: `counter-1` gave its slot back, and `counter-7`
+That last call now succeeds: `$RUNNING` gave its slot back, and `$DENIED`
 woke into it. Nothing frees a slot on its own, this only happened because
-something explicitly asked `counter-1` to suspend. See `ARCHITECTURE.md` for
+something explicitly asked `$RUNNING` to suspend. See `ARCHITECTURE.md` for
 why.

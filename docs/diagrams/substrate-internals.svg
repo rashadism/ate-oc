@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" role="img" aria-label="Substrate internals: a client calls atenet-router with an actor header; the router asks ate-api-server to resume the actor; the API server has atelet restore the snapshot from object storage into a sandbox inside a worker pod; the router then tunnels the request to the worker's atunnel. Outbound actor traffic leaves through atenet-egress. ate-controller reconciles WorkerPool CRDs into worker Deployments.">
+  <style>
+    text{fill:#18211D;font:12px "IBM Plex Sans",system-ui,sans-serif}
+    .t{font:600 13px "IBM Plex Sans Condensed",sans-serif}
+    .sub{fill:#5A655F;font-size:11px}
+    .mono{font:11px "IBM Plex Mono",ui-monospace,monospace;fill:#5A655F}
+    .box{fill:#FFFFFF;stroke:#18211D;stroke-width:1.2}
+    .frame{fill:none;stroke:#5A655F;stroke-width:1;stroke-dasharray:4 4}
+    .hotw{fill:#F7E3CF;stroke:#D26F17;stroke-width:1.2}
+    .coldw{fill:#DCE5F1;stroke:#43689E;stroke-width:1.2}
+    .ln{stroke:#18211D;stroke-width:1.3;fill:none}
+    .ln.a{stroke:#D26F17}
+    .ln.c{stroke:#43689E}
+    .ah{fill:#18211D} .ahA{fill:#D26F17} .ahC{fill:#43689E}
+  </style>
+  <rect x="0" y="0" width="1000" height="500" fill="#FFFFFF"/>
+  <defs>
+    <marker id="a-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="a-ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahA" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="a-ahC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahC" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="box" x="20" y="60" width="150" height="56"/>
+  <text class="t" x="95" y="84" text-anchor="middle">client</text>
+  <text class="sub" x="95" y="101" text-anchor="middle">app / orchestrator</text>
+
+  <rect class="box" x="230" y="40" width="200" height="96"/>
+  <text class="t" x="330" y="68" text-anchor="middle">atenet-router</text>
+  <text class="sub" x="330" y="86" text-anchor="middle">Envoy + ext_proc</text>
+  <text class="sub" x="330" y="102" text-anchor="middle">ingress &#183; wakes actors</text>
+  <text class="mono" x="330" y="122" text-anchor="middle">ClusterIP :80 :8081</text>
+
+  <rect class="box" x="520" y="40" width="210" height="96"/>
+  <text class="t" x="625" y="68" text-anchor="middle">ate-api-server</text>
+  <text class="sub" x="625" y="86" text-anchor="middle">gRPC Control API</text>
+  <text class="sub" x="625" y="102" text-anchor="middle">scheduler &#183; workflows</text>
+  <text class="mono" x="625" y="122" text-anchor="middle">api.ate-system.svc:443</text>
+
+  <rect class="box" x="810" y="52" width="170" height="72"/>
+  <text class="t" x="895" y="80" text-anchor="middle">PostgreSQL</text>
+  <text class="sub" x="895" y="98" text-anchor="middle">actors &#183; templates &#183; tags</text>
+
+  <line class="ln" x1="170" y1="88" x2="228" y2="88" marker-end="url(#a-ah)"/>
+  <text class="mono" x="199" y="150" text-anchor="middle">HTTP</text>
+  <text class="mono" x="199" y="164" text-anchor="middle">ate-target-actor:</text>
+  <text class="mono" x="199" y="178" text-anchor="middle">atespace/actor</text>
+
+  <line class="ln a" x1="430" y1="72" x2="518" y2="72" marker-end="url(#a-ahA)"/>
+  <text class="sub" x="474" y="64" text-anchor="middle">ResumeActor</text>
+  <line class="ln" x1="518" y1="112" x2="432" y2="112" marker-end="url(#a-ah)"/>
+  <text class="sub" x="474" y="128" text-anchor="middle">worker IP</text>
+
+  <line class="ln" x1="730" y1="88" x2="808" y2="88" marker-end="url(#a-ah)"/>
+  <text class="sub" x="769" y="80" text-anchor="middle">state</text>
+
+  <rect class="frame" x="230" y="200" width="560" height="230"/>
+  <text class="sub" x="242" y="220">Kubernetes node</text>
+
+  <rect class="frame" x="250" y="235" width="330" height="180"/>
+  <text class="sub" x="262" y="252">worker pod (from a WorkerPool)</text>
+
+  <rect class="box" x="270" y="262" width="130" height="50"/>
+  <text class="t" x="335" y="283" text-anchor="middle">atunnel</text>
+  <text class="mono" x="335" y="300" text-anchor="middle">:443 mTLS</text>
+
+  <rect class="box" x="430" y="262" width="130" height="50"/>
+  <text class="t" x="495" y="283" text-anchor="middle">ateom</text>
+  <text class="sub" x="495" y="300" text-anchor="middle">sandbox herder</text>
+
+  <rect class="hotw" x="270" y="332" width="290" height="66"/>
+  <text class="t" x="415" y="355" text-anchor="middle">sandbox &#183; gVisor or micro-VM</text>
+  <text class="sub" x="415" y="373" text-anchor="middle">the actor's containers run here</text>
+  <text class="mono" x="415" y="389" text-anchor="middle">one actor per worker at a time</text>
+
+  <line class="ln" x1="335" y1="312" x2="335" y2="330" marker-end="url(#a-ah)"/>
+  <line class="ln" x1="495" y1="312" x2="495" y2="330" marker-end="url(#a-ah)"/>
+
+  <rect class="box" x="610" y="250" width="160" height="70"/>
+  <text class="t" x="690" y="276" text-anchor="middle">atelet</text>
+  <text class="sub" x="690" y="293" text-anchor="middle">node agent (DaemonSet)</text>
+  <text class="sub" x="690" y="308" text-anchor="middle">moves snapshots</text>
+  <line class="ln" x1="608" y1="287" x2="562" y2="287" marker-end="url(#a-ah)"/>
+
+  <line class="ln a" x1="690" y1="136" x2="690" y2="248" marker-end="url(#a-ahA)"/>
+  <text class="sub" x="698" y="176">restore /</text>
+  <text class="sub" x="698" y="190">checkpoint</text>
+
+  <line class="ln a" x1="330" y1="136" x2="330" y2="260" marker-end="url(#a-ahA)"/>
+  <text class="sub" x="338" y="176">tunnel request</text>
+  <text class="sub" x="338" y="190">to worker</text>
+
+  <rect class="coldw" x="830" y="310" width="150" height="80"/>
+  <text class="t" x="905" y="338" text-anchor="middle">object storage</text>
+  <text class="sub" x="905" y="355" text-anchor="middle">GCS / S3 / rustfs</text>
+  <text class="sub" x="905" y="371" text-anchor="middle">memory + disk snapshots</text>
+  <line class="ln c" x1="770" y1="305" x2="828" y2="335" marker-end="url(#a-ahC)" marker-start="url(#a-ahC)"/>
+  <text class="sub" x="808" y="304" text-anchor="middle">stream</text>
+
+  <rect class="box" x="830" y="180" width="150" height="74"/>
+  <text class="t" x="905" y="204" text-anchor="middle">ate-controller</text>
+  <text class="sub" x="905" y="221" text-anchor="middle">WorkerPool CRD &#8594;</text>
+  <text class="sub" x="905" y="236" text-anchor="middle">worker Deployment</text>
+  <line class="ln" x1="830" y1="217" x2="792" y2="217" marker-end="url(#a-ah)"/>
+
+  <rect class="box" x="20" y="320" width="170" height="80"/>
+  <text class="t" x="105" y="346" text-anchor="middle">atenet-egress</text>
+  <text class="sub" x="105" y="363" text-anchor="middle">per-actor egress policy</text>
+  <text class="sub" x="105" y="379" text-anchor="middle">credential injection</text>
+  <line class="ln" x1="268" y1="365" x2="192" y2="365" marker-end="url(#a-ah)"/>
+  <text class="sub" x="230" y="357" text-anchor="middle">all TCP out</text>
+
+  <rect class="box" x="20" y="440" width="170" height="40"/>
+  <text class="t" x="105" y="465" text-anchor="middle">external APIs</text>
+  <line class="ln" x1="105" y1="400" x2="105" y2="438" marker-end="url(#a-ah)"/>
+  <text class="sub" x="113" y="424">allowed hosts only</text>
+</svg>

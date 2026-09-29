@@ -1,11 +1,13 @@
 # Architecture
 
-> **Status:** deploying your own image as a component, running several of
-> them packed onto a small pool of shared workers, and having them wake on
-> request and go back to sleep when told to, all work today and were
-> verified end-to-end on a live cluster. Most of what follows beyond that
-> describes the intended design and may be partially built or not built at
-> all. Check the current code before relying on any of it as fact.
+## Status
+
+Deploying your own image as a component, running several of them packed
+onto a small pool of shared workers, and having them wake on request and go
+back to sleep when told to, all work today and were verified end-to-end on
+a live cluster. Most of what follows beyond that describes the intended
+design and may be partially built or not built at all. Check the current
+code before relying on any of it as fact.
 
 How `oc-substrate` maps OpenChoreo's developer-facing abstractions
 (`Component`, `Workload`) onto Agent Substrate's actor runtime.
@@ -59,6 +61,15 @@ immutable blueprints, instances). An actor occupies a Pod only while
 running; otherwise it's a snapshot in object storage.
 
 ![Substrate's model: SandboxConfig and WorkerPool provide warm capacity; an Atespace holds an immutable ActorTemplate that builds one golden snapshot, and Actors are running or suspended instances of it, each with its own EgressPolicy.](docs/diagrams/substrate-model.svg)
+
+The components in the Terminology table above are what actually implement
+this: a request arrives at `atenet-router`, which asks `ate-api-server` to
+resume the actor; the API server has `atelet` restore the snapshot into a
+sandbox on a worker Pod, then the router tunnels the request into that
+worker's `atunnel`. Outbound traffic from the actor leaves through
+`atenet-egress`, checked against its `EgressPolicy`.
+
+![Substrate internals: atenet-router asks ate-api-server to resume an actor; the API server has atelet restore the snapshot from object storage into a sandbox on a worker Pod; the router tunnels the request to the worker's atunnel; outbound traffic leaves through atenet-egress.](docs/diagrams/substrate-internals.svg)
 
 ## OpenChoreo's model
 
@@ -155,14 +166,6 @@ componentTypeEnvironmentConfigs:
 
 Without `paused: true` (or an external suspend call), a running actor holds
 its full reservation indefinitely, however idle it is.
-
-## Multiplexing is a capacity ceiling, not elastic
-
-A `WorkerPool` reserves fixed CPU/memory per Pod; each actor's own
-resources determine how many fit per worker. If more actors are declared
-than capacity allows, the first to get traffic run and the rest return a
-clean `503` until something explicitly frees a slot. Size a `WorkerPool` for
-expected concurrent-active actors, not total registered actors.
 
 ## Cluster prerequisites, and why
 
