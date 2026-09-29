@@ -73,11 +73,22 @@ spec:
     projectName: default
 ```
 
-Apply it, then check the underlying actor comes up:
+Apply it, wait for the release to expose an endpoint, then call it:
 
 ```
 kubectl apply -f counter.yaml
-kubectl get actor -A
+
+HOST=$(kubectl get releasebinding counter-development -n default \
+  -o jsonpath='{.status.endpoints[0].externalURLs.http.host}')
+PATH_PREFIX=$(kubectl get releasebinding counter-development -n default \
+  -o jsonpath='{.status.endpoints[0].externalURLs.http.path}')
+
+curl -sk "https://$HOST$PATH_PREFIX/"
 ```
 
-It's ready once the actor's `Ready` condition is `True` (state `SUSPENDED` is normal: an actor warm and waiting for its first request, not idle).
+A real response (`hello from: <ip> | ...`) confirms the whole path works: the
+actor woke up, served the request, and routed back. `kubectl get actor -A`
+showing `Ready` only means the actor object exists; it doesn't mean a
+request can actually reach it, so treat a real response as the source of
+truth, not just actor readiness. State `SUSPENDED` before the first request
+is normal: an actor warm and waiting, not idle.
