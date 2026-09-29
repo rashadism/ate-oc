@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" role="img" aria-label="Substrate model. Kubernetes CRDs SandboxConfig and WorkerPool provide warm worker pods. Inside an Atespace, an immutable ActorTemplate names a SandboxConfig and builds a golden snapshot once; Actors are instances of a template, each with its own EgressPolicy. A running actor sits on one worker pod; a suspended actor is a snapshot in object storage.">
+  <style>
+    text{fill:#18211D;font:12px "IBM Plex Sans",system-ui,sans-serif}
+    .t{font:600 13px "IBM Plex Sans Condensed",sans-serif}
+    .h{font:600 14px "IBM Plex Sans Condensed",sans-serif;fill:#5A655F;letter-spacing:.04em}
+    .sub{fill:#5A655F;font-size:11px}
+    .mono{font:11px "IBM Plex Mono",ui-monospace,monospace;fill:#5A655F}
+    .ate{fill:#F7E4D0;stroke:#C46A14;stroke-width:1.3}
+    .frame{fill:none;stroke:#5A655F;stroke-width:1;stroke-dasharray:4 4}
+    .ln{stroke:#18211D;stroke-width:1.3;fill:none}
+    .ln.ate{stroke:#C46A14;fill:none}
+    .ah{fill:#18211D} .ahA{fill:#C46A14}
+  </style>
+  <rect x="0" y="0" width="1000" height="380" fill="#FFFFFF"/>
+  <defs>
+    <marker id="s-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="s-ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahA" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <text class="h" x="20" y="36">KUBERNETES CRDs (platform)</text>
+  <text class="h" x="760" y="36">STORAGE</text>
+
+  <rect class="ate" x="20" y="60" width="230" height="64"/>
+  <text class="t" x="135" y="86" text-anchor="middle">SandboxConfig</text>
+  <text class="sub" x="135" y="104" text-anchor="middle">runtime binaries · class (gvisor / microvm)</text>
+
+  <rect class="ate" x="20" y="170" width="230" height="64"/>
+  <text class="t" x="135" y="196" text-anchor="middle">WorkerPool</text>
+  <text class="sub" x="135" y="214" text-anchor="middle">N warm pods · class · size · labels</text>
+
+  <line class="ln" x1="135" y1="234" x2="135" y2="276" marker-end="url(#s-ah)"/>
+  <text class="sub" x="143" y="260">creates</text>
+  <rect class="ate" x="20" y="280" width="66" height="40"/><text class="mono" x="53" y="304" text-anchor="middle">worker</text>
+  <rect class="ate" x="102" y="280" width="66" height="40"/><text class="mono" x="135" y="304" text-anchor="middle">worker</text>
+  <rect class="ate" x="184" y="280" width="66" height="40"/><text class="mono" x="217" y="304" text-anchor="middle">worker</text>
+
+  <rect class="frame" x="300" y="46" width="440" height="316"/>
+  <text class="h" x="316" y="36">SUBSTRATE API (Postgres records)</text>
+  <text class="sub" x="316" y="68">Atespace · tenant and naming boundary</text>
+
+  <rect class="ate" x="320" y="82" width="180" height="70"/>
+  <text class="t" x="410" y="106" text-anchor="middle">ActorTemplate</text>
+  <text class="sub" x="410" y="123" text-anchor="middle">containers · limits · snapshot policy</text>
+  <text class="mono" x="410" y="140" text-anchor="middle">immutable</text>
+
+  <rect class="ate" x="540" y="82" width="180" height="70"/>
+  <text class="t" x="630" y="106" text-anchor="middle">Golden snapshot</text>
+  <text class="sub" x="630" y="123" text-anchor="middle">booted once per template</text>
+  <text class="mono" x="630" y="140" text-anchor="middle">a published tag</text>
+  <line class="ln" x1="500" y1="117" x2="538" y2="117" marker-end="url(#s-ah)"/>
+
+  <rect class="ate" x="320" y="212" width="180" height="70"/>
+  <text class="t" x="410" y="236" text-anchor="middle">Actor</text>
+  <text class="sub" x="410" y="253" text-anchor="middle">an instance · has state</text>
+  <text class="mono" x="410" y="270" text-anchor="middle">SUSPENDED ⇄ RUNNING</text>
+
+  <rect class="ate" x="540" y="212" width="180" height="70"/>
+  <text class="t" x="630" y="236" text-anchor="middle">EgressPolicy</text>
+  <text class="sub" x="630" y="253" text-anchor="middle">one per actor</text>
+  <text class="mono" x="630" y="270" text-anchor="middle">deny unless allowed</text>
+  <line class="ln" x1="500" y1="247" x2="538" y2="247" marker-end="url(#s-ah)"/>
+
+  <line class="ln" x1="410" y1="212" x2="410" y2="154" marker-end="url(#s-ah)"/>
+  <text class="sub" x="418" y="188">instance of</text>
+
+  <line class="ln" x1="320" y1="100" x2="252" y2="92" marker-end="url(#s-ah)"/>
+  <text class="sub" x="286" y="84" text-anchor="middle">names</text>
+
+  <line class="ln ate" x1="320" y1="262" x2="252" y2="296" marker-end="url(#s-ahA)"/>
+  <text class="sub" x="296" y="344" text-anchor="end">runs on one worker while RUNNING</text>
+
+  <rect class="ate" x="780" y="100" width="200" height="120"/>
+  <text class="t" x="880" y="130" text-anchor="middle">Object storage</text>
+  <text class="sub" x="880" y="150" text-anchor="middle">golden + actor snapshots</text>
+  <text class="sub" x="880" y="167" text-anchor="middle">RAM · rootfs · durable dir</text>
+  <text class="mono" x="880" y="190" text-anchor="middle">rustfs / S3 / GCS</text>
+  <line class="ln" x1="720" y1="112" x2="778" y2="130" marker-end="url(#s-ah)"/>
+
+  <polyline class="ln ate" points="410,282 410,346 880,346 880,222" marker-end="url(#s-ahA)"/>
+  <text class="sub" x="645" y="338" text-anchor="middle">suspend → snapshot out · request → restore in</text>
+</svg>

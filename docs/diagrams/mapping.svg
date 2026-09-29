@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" role="img" aria-label="Mapping. The cell namespace maps to an atespace. ComponentType plus Traits (how) and Workload (what) render an ActorTemplate CR that becomes an immutable ActorTemplate revision with a golden snapshot. The ReleaseBinding renders an Actor CR, which becomes one UID-named Substrate actor. Endpoints and visibility become a Service pointing at the front door, which routes via atenet-router. Dependencies pass the operator's visibility check and become the actor's EgressPolicy. DataPlane annotations and ESO-synced secrets become the worker pool, sandbox config and literal env.">
+  <style>
+    text{fill:#18211D;font:12px "IBM Plex Sans",system-ui,sans-serif}
+    .t{font:600 13px "IBM Plex Sans Condensed",sans-serif}
+    .h{font:600 14px "IBM Plex Sans Condensed",sans-serif;fill:#5A655F;letter-spacing:.04em}
+    .sub{fill:#5A655F;font-size:11px}
+    .mono{font:11px "IBM Plex Mono",ui-monospace,monospace;fill:#5A655F}
+    .oc{fill:#DDEBF1;stroke:#2C6E8A;stroke-width:1.3}
+    .ate{fill:#F7E4D0;stroke:#C46A14;stroke-width:1.3}
+    .br{fill:#E8E3F1;stroke:#6A5A8C;stroke-width:1.3;stroke-dasharray:5 3}
+    .ln.br{stroke:#6A5A8C;fill:none}
+    .ahB{fill:#6A5A8C}
+  </style>
+  <rect x="0" y="0" width="1000" height="580" fill="#FFFFFF"/>
+  <defs>
+    <marker id="m-ahB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ahB" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <text class="h" x="20" y="30">OPENCHOREO</text>
+  <text class="h" x="360" y="30">OUR BRIDGE</text>
+  <text class="h" x="680" y="30">SUBSTRATE</text>
+
+  <!-- R1 -->
+  <rect class="oc" x="20" y="48" width="300" height="52"/>
+  <text class="t" x="34" y="70">Cell namespace</text><text class="sub" x="34" y="88">project × environment (from the ProjectType)</text>
+  <rect class="ate" x="680" y="48" width="300" height="52"/>
+  <text class="t" x="694" y="70">Atespace</text><text class="sub" x="694" y="88">same name as the namespace, created lazily</text>
+  <line class="ln br" x1="320" y1="74" x2="678" y2="74" marker-end="url(#m-ahB)"/>
+  <text class="sub" x="500" y="66" text-anchor="middle">1 : 1</text>
+
+  <!-- R2/R3 -->
+  <rect class="oc" x="20" y="124" width="300" height="52"/>
+  <text class="t" x="34" y="146">ComponentType + Traits</text><text class="sub" x="34" y="164">how to run: class, pool, limits, snapshot policy</text>
+  <rect class="oc" x="20" y="190" width="300" height="52"/>
+  <text class="t" x="34" y="212">Workload</text><text class="sub" x="34" y="230">what to run: image, command, env, secrets</text>
+  <rect class="br" x="360" y="124" width="280" height="118"/>
+  <text class="t" x="374" y="150">ActorTemplate CR</text>
+  <text class="sub" x="374" y="168">rendered spec; digest pinned,</text>
+  <text class="sub" x="374" y="184">secrets/config inlined,</text>
+  <text class="sub" x="374" y="200">content-hashed</text>
+  <text class="mono" x="374" y="226">revision = hash of rendered spec</text>
+  <rect class="ate" x="680" y="124" width="300" height="118"/>
+  <text class="t" x="694" y="150">ActorTemplate revision</text>
+  <text class="sub" x="694" y="168">immutable; t-&lt;uid-hash&gt;-&lt;spec-hash&gt;</text>
+  <text class="sub" x="694" y="184">+ golden snapshot, built once</text>
+  <text class="mono" x="694" y="226">one per component × env × spec</text>
+  <line class="ln br" x1="320" y1="150" x2="358" y2="170" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="320" y1="216" x2="358" y2="198" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="640" y1="183" x2="678" y2="183" marker-end="url(#m-ahB)"/>
+
+  <!-- R4 -->
+  <rect class="oc" x="20" y="266" width="300" height="52"/>
+  <text class="t" x="34" y="288">ReleaseBinding</text><text class="sub" x="34" y="306">one per env · Active / Undeploy</text>
+  <rect class="br" x="360" y="266" width="280" height="52"/>
+  <text class="t" x="374" y="288">Actor CR</text><text class="sub" x="374" y="306">one per component × env · idle · paused</text>
+  <rect class="ate" x="680" y="266" width="300" height="52"/>
+  <text class="t" x="694" y="288">Actor  a-&lt;hash(component, env UIDs)&gt;</text><text class="sub" x="694" y="306">SUSPENDED ⇄ RUNNING · retained after deletion</text>
+  <line class="ln br" x1="320" y1="292" x2="358" y2="292" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="640" y1="292" x2="678" y2="292" marker-end="url(#m-ahB)"/>
+
+  <!-- R5 -->
+  <rect class="oc" x="20" y="342" width="300" height="52"/>
+  <text class="t" x="34" y="364">Endpoints + visibility</text><text class="sub" x="34" y="382">project · namespace · internal · external</text>
+  <rect class="br" x="360" y="342" width="280" height="52"/>
+  <text class="t" x="374" y="364">Service → front door</text><text class="sub" x="374" y="382">checks visibility · sets actor header</text>
+  <rect class="ate" x="680" y="342" width="300" height="52"/>
+  <text class="t" x="694" y="364">atenet-router → worker</text><text class="sub" x="694" y="382">wakes the actor · port 80 or CONNECT</text>
+  <line class="ln br" x1="320" y1="368" x2="358" y2="368" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="640" y1="368" x2="678" y2="368" marker-end="url(#m-ahB)"/>
+
+  <!-- R6 -->
+  <rect class="oc" x="20" y="418" width="300" height="52"/>
+  <text class="t" x="34" y="440">Dependencies</text><text class="sub" x="34" y="458">other components · resources (db, cache)</text>
+  <rect class="br" x="360" y="418" width="280" height="52"/>
+  <text class="t" x="374" y="440">Operator: visibility check</text><text class="sub" x="374" y="458">reads the target's OpenChoreo policy</text>
+  <rect class="ate" x="680" y="418" width="300" height="52"/>
+  <text class="t" x="694" y="440">EgressPolicy (per actor)</text><text class="sub" x="694" y="458">hostname rules · /32 for TCP resources</text>
+  <line class="ln br" x1="320" y1="444" x2="358" y2="444" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="640" y1="444" x2="678" y2="444" marker-end="url(#m-ahB)"/>
+
+  <!-- R7 -->
+  <rect class="oc" x="20" y="494" width="300" height="60"/>
+  <text class="t" x="34" y="516">DataPlane annotations · SecretReference</text><text class="sub" x="34" y="534">PE config · secrets synced by ESO</text>
+  <rect class="br" x="360" y="494" width="280" height="60"/>
+  <text class="t" x="374" y="516">Operator</text><text class="sub" x="374" y="534">picks pool/class · reads the Secret, inlines env</text>
+  <rect class="ate" x="680" y="494" width="300" height="60"/>
+  <text class="t" x="694" y="516">WorkerPool · SandboxConfig · env</text><text class="sub" x="694" y="534">shared capacity; literal env values</text>
+  <line class="ln br" x1="320" y1="524" x2="358" y2="524" marker-end="url(#m-ahB)"/>
+  <line class="ln br" x1="640" y1="524" x2="678" y2="524" marker-end="url(#m-ahB)"/>
+</svg>
