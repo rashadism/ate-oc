@@ -92,3 +92,49 @@ showing `Ready` only means the actor object exists; it doesn't mean a
 request can actually reach it, so treat a real response as the source of
 truth, not just actor readiness. State `SUSPENDED` before the first request
 is normal: an actor warm and waiting, not idle.
+
+### 5. See the multiplexing
+
+The default install gives 3 workers at 1 CPU/1Gi each, and an actor defaults
+to 500m/512Mi, so 2 actors fit per worker: 6 actors is full capacity.
+Deploying more components than that is the actual demo, since it shows what
+happens at the ceiling, not just that things fit.
+
+Deploy 10:
+
+```
+for i in $(seq 1 10); do
+  sed "s/: counter/: counter-$i/g" counter.yaml | kubectl apply -f -
+done
+```
+
+Call all 10:
+
+```
+for i in $(seq 1 10); do
+  HOST=$(kubectl get releasebinding counter-$i-development -n default \
+    -o jsonpath='{.status.endpoints[0].externalURLs.http.host}')
+  PATH_PREFIX=$(kubectl get releasebinding counter-$i-development -n default \
+    -o jsonpath='{.status.endpoints[0].externalURLs.http.path}')
+  curl -sk "https://$HOST$PATH_PREFIX/" -o /dev/null -w "counter-$i: %{http_code}\n"
+done
+```
+
+The first 6 to get traffic return `200`; the rest return `503` ("no free
+workers available"), because capacity is full. `kubectl ate get workers`
+shows all 3 workers at `2/2`.
+
+Now free a slot and watch a previously-denied one take it:
+
+```
+kubectl patch releasebinding counter-1-development -n default --type merge \
+  -p '{"spec":{"componentTypeEnvironmentConfigs":{"resources":{"cpu":"500m","memory":"512Mi"},"paused":true}}}'
+
+# wait a few seconds for it to actually suspend, then:
+curl -sk "https://$HOST$PATH_PREFIX/"   # HOST/PATH_PREFIX for counter-7, or any that got 503
+```
+
+That last call now succeeds: `counter-1` gave its slot back, and `counter-7`
+woke into it. Nothing frees a slot on its own, this only happened because
+something explicitly asked `counter-1` to suspend. See `ARCHITECTURE.md` for
+why.
