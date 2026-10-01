@@ -100,7 +100,13 @@ spec:
                 ${has(workload.container.command) ? workload.container.command : oc_omit()}
               args: |
                 ${has(workload.container.args) ? workload.container.args : oc_omit()}
-              env: ${dependencies.toContainerEnvs()}
+              env: |
+                ${dyn(dependencies.toContainerEnvs()) + dyn([
+                  {"name": "OTEL_RESOURCE_ATTRIBUTES",
+                   "value": "service.name=" + metadata.labels["openchoreo.dev/component"] +
+                             ",service.namespace=" + metadata.labels["openchoreo.dev/project"] +
+                             ",deployment.environment=" + metadata.labels["openchoreo.dev/environment"]}
+                ])}
               envFrom: ${configurations.toContainerEnvFrom()}
               wakeupProbe: |
                 ${parameters.readinessPath != ""
