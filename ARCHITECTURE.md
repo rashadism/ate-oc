@@ -205,14 +205,26 @@ actor's stdout lands on the worker Pod's own stdout as JSON, tagged with
 `ate.actor.name` (the operator's own actor identity: `internal/naming`
 names it `<component>-<environment>-a-<hash>` when it knows the component
 and environment, falling back to an opaque `a-<hash>` otherwise). Both are
-regular strings, not something that needs a live lookup to attribute.
+regular strings, recovering component/project/environment *names* with no
+live lookup.
 
-`extras/opensearch-fluentbit-addon/` adds two Fluent Bit filters, scoped to
-the actor worker namespace, that parse those fields and set
-`openchoreo_component`/`openchoreo_project`/`openchoreo_environment`, the
-same fields the stock `kubernetes` filter sets from pod labels for a normal
-component. Verified live: a deployed component's logs show up correctly
-attributed in OpenSearch, with zero change to actors that predate this.
+Names alone aren't enough: `observability-logs-opensearch`'s own query
+filters by `openchoreo.dev/namespace` (the project's Kubernetes namespace,
+unconditionally) and `openchoreo.dev/{component,project,environment}-uid`,
+real UIDs that no string-splitting can recover. The `ActorTemplate`
+reconciler already resolves these from the CR's own labels, so it also
+publishes them (name and namespace/UID both) into a shared
+`actor-identity-attribution` ConfigMap on every reconcile.
+
+`extras/opensearch-fluentbit-addon/` mounts that ConfigMap into fluent-bit
+and adds two filters, scoped to the actor worker namespace: one derives the
+same `openchoreo_component`/`openchoreo_project`/`openchoreo_environment`
+fields the stock `kubernetes` filter would set from pod labels for a normal
+component, the other looks up the real namespace/UIDs for those names and
+writes them as the actual label keys the query expects. Verified live end
+to end: a deployed component's logs are attributed, indexed, and returned
+by the real component-logs query, with zero change to actors that predate
+this.
 
 The same fix applies the same way to every other log backend OpenChoreo
 supports, just through a different config surface each:
