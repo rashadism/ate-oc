@@ -1,0 +1,5 @@
+clusterInstance: openchoreo
+httpPort: 2021
+opensearch:
+  host: opensearch
+  port: 9200
