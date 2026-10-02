@@ -64,3 +64,29 @@ func TestActorNameHelpers(t *testing.T) {
 		t.Fatal("revision prefix not recoverable from actor name")
 	}
 }
+
+func TestReadableActorName(t *testing.T) {
+	id := Identity{ComponentUID: "c", EnvironmentUID: "e", Component: "counter-x", Environment: "development"}
+	name := id.ActorName()
+	if name != "counter-x-development-a-"+id.hash10() {
+		t.Fatalf("got %q", name)
+	}
+	if !IsActorName(name) {
+		t.Fatal("IsActorName should recognize a readable actor name")
+	}
+	if RevisionPrefixForActor(name) != id.TemplateRevisionPrefix() {
+		t.Fatal("revision prefix not recoverable from a readable actor name")
+	}
+
+	// Uniqueness still comes from the UIDs: same name, different UIDs, different actor.
+	other := Identity{ComponentUID: "different", EnvironmentUID: "e", Component: "counter-x", Environment: "development"}
+	if other.ActorName() == name {
+		t.Fatal("different component UIDs must still yield different actor names")
+	}
+
+	// Missing either readable field falls back to the opaque shape.
+	noComponent := Identity{ComponentUID: "c", EnvironmentUID: "e", Environment: "development"}
+	if noComponent.ActorName() != "a-"+id.hash10() {
+		t.Fatalf("expected opaque fallback, got %q", noComponent.ActorName())
+	}
+}
