@@ -57,6 +57,9 @@ spec:
             {{- with .Values.registry.insecureRegistries }}
             - --insecure-registries={{ join "," . }}
             {{- end }}
+            {{- with .Values.attributionConfigMapNamespace }}
+            - --attribution-configmap-namespace={{ . }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom: {fieldRef: {fieldPath: metadata.namespace}}

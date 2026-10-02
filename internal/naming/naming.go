@@ -11,27 +11,40 @@ import (
 const (
 	LabelComponentUID    = "openchoreo.dev/component-uid"
 	LabelEnvironmentUID  = "openchoreo.dev/environment-uid"
+	LabelProjectUID      = "openchoreo.dev/project-uid"
 	LabelComponentName   = "openchoreo.dev/component"
 	LabelEnvironmentName = "openchoreo.dev/environment"
+	LabelProjectName     = "openchoreo.dev/project"
+	LabelNamespace       = "openchoreo.dev/namespace"
 )
 
 // Identity is the component × environment pair an ActorTemplate or Actor
 // belongs to. Uniqueness comes from the UIDs, so a recreated same-named
 // component can never reach state left by its predecessor; Component/
-// Environment only make ActorName readable, never affect uniqueness.
+// Environment/Project/Namespace only make ActorName readable and identity
+// attributable elsewhere, never affect uniqueness. Project and Namespace are
+// optional: ActorName doesn't use either, only the attribution-table writer
+// does. Namespace is the project's own Kubernetes namespace -- a separate
+// value from Project's name, even though they're often equal in practice.
 type Identity struct {
 	ComponentUID   string
 	EnvironmentUID string
+	ProjectUID     string
 	Component      string
 	Environment    string
+	Project        string
+	Namespace      string
 }
 
 func IdentityFromLabels(labels map[string]string) (Identity, error) {
 	id := Identity{
 		ComponentUID:   labels[LabelComponentUID],
 		EnvironmentUID: labels[LabelEnvironmentUID],
+		ProjectUID:     labels[LabelProjectUID],
 		Component:      labels[LabelComponentName],
 		Environment:    labels[LabelEnvironmentName],
+		Project:        labels[LabelProjectName],
+		Namespace:      labels[LabelNamespace],
 	}
 	if id.ComponentUID == "" || id.EnvironmentUID == "" {
 		return Identity{}, fmt.Errorf("labels %s and %s are required", LabelComponentUID, LabelEnvironmentUID)

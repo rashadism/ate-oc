@@ -29,6 +29,32 @@ func TestIdentityFromLabels(t *testing.T) {
 	}
 }
 
+func TestIdentityFromLabelsReadsProject(t *testing.T) {
+	id, err := IdentityFromLabels(map[string]string{
+		LabelComponentUID:    "c",
+		LabelEnvironmentUID:  "e",
+		LabelProjectUID:      "p",
+		LabelComponentName:   "counter-x",
+		LabelEnvironmentName: "development",
+		LabelProjectName:     "default",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.ProjectUID != "p" || id.Project != "default" {
+		t.Fatalf("got ProjectUID=%q Project=%q, want p/default", id.ProjectUID, id.Project)
+	}
+
+	// Project is optional: absent entirely, still no error.
+	id, err = IdentityFromLabels(map[string]string{LabelComponentUID: "c", LabelEnvironmentUID: "e"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id.ProjectUID != "" || id.Project != "" {
+		t.Fatalf("expected empty project fields, got ProjectUID=%q Project=%q", id.ProjectUID, id.Project)
+	}
+}
+
 func TestNames(t *testing.T) {
 	a := Identity{ComponentUID: "0b7f5c3e-1111-4c1a-9f00-000000000001", EnvironmentUID: "7d2c1a90-2222-4b2b-8e00-000000000002"}
 	b := Identity{ComponentUID: "0b7f5c3e-1111-4c1a-9f00-000000000009", EnvironmentUID: a.EnvironmentUID}

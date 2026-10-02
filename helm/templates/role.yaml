@@ -8,9 +8,11 @@ rules:
   - ""
   resources:
   - configmaps
-  - secrets
   verbs:
+  - create
   - get
+  - patch
+  - update
 - apiGroups:
   - ""
   resources:
@@ -22,6 +24,12 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
 - apiGroups:
   - ate.dev
   resources:

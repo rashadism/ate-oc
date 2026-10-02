@@ -13,6 +13,11 @@ ateapi:
 # Namespace Substrate is installed in.
 ateSystemNamespace: ate-system
 
+# Namespace for the shared actor-identity-attribution ConfigMap (name/project/
+# environment -> UID, for log backends that can only recover names from an
+# actor's log identity). Empty disables publishing it.
+attributionConfigMapNamespace: ""
+
 # Namespace Substrate's privileged worker pools run in.
 workerPoolNamespace: ate-workers
 

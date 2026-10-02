@@ -37,7 +37,7 @@ func init() {
 }
 
 func main() {
-	var metricsAddr, probeAddr, storageLocation string
+	var metricsAddr, probeAddr, storageLocation, attributionNamespace string
 	var leaderElect bool
 	var retentionTTL, orphanScanInterval time.Duration
 	var frontDoorNamespace, frontDoorSelector string
@@ -69,6 +69,8 @@ func main() {
 		"Docker config with registry credentials for resolving image digests; optional.")
 	flag.StringVar(&insecureRegistries, "insecure-registries", "", "Registries reached over plain HTTP, comma-separated.")
 	flag.StringVar(&storageLocation, "storage-location", "", "Snapshot object-store prefix, per atespace.")
+	flag.StringVar(&attributionNamespace, "attribution-configmap-namespace", "",
+		"Namespace for the shared actor-identity-attribution ConfigMap; empty disables it.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -136,6 +138,7 @@ func main() {
 
 	actorTemplateR := &controller.ActorTemplateReconciler{
 		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ate: ateClient, StorageLocation: storageLocation, Images: resolver,
+		AttributionNamespace: attributionNamespace,
 	}
 	if err := actorTemplateR.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ActorTemplate")

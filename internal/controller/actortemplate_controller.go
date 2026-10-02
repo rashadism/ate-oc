@@ -51,12 +51,16 @@ type ActorTemplateReconciler struct {
 	Images ImageResolver
 	// StorageLocation is the snapshot object-store prefix; each atespace gets a sub-path.
 	StorageLocation string
+	// AttributionNamespace is where the shared actor-identity-attribution
+	// ConfigMap lives. Empty disables publishing name->UID entries.
+	AttributionNamespace string
 }
 
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=substrate.openchoreo.dev,resources=actortemplates/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets;configmaps,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;update;patch
 // +kubebuilder:rbac:groups=ate.dev,resources=workerpools,verbs=get;list;watch
 
 func (r *ActorTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -88,6 +92,9 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 	if err != nil {
 		setCond(at, CondAccepted, false, "MissingIdentity", err.Error())
 		return ctrl.Result{}, nil
+	}
+	if err := r.recordIdentity(ctx, id); err != nil {
+		return ctrl.Result{}, err
 	}
 	if err := r.ensureAtespace(ctx, at.Namespace); err != nil {
 		return ctrl.Result{}, err
@@ -216,6 +223,11 @@ func (r *ActorTemplateReconciler) resolveImages(ctx context.Context, at *substra
 func (r *ActorTemplateReconciler) finalize(ctx context.Context, at *substratev1alpha1.ActorTemplate) error {
 	if !controllerutil.ContainsFinalizer(at, Finalizer) {
 		return nil
+	}
+	if id, err := naming.IdentityFromLabels(at.Labels); err == nil {
+		if err := r.removeIdentity(ctx, id); err != nil {
+			return err
+		}
 	}
 	controllerutil.RemoveFinalizer(at, Finalizer)
 	return r.Update(ctx, at)
