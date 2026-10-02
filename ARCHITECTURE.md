@@ -191,19 +191,70 @@ state). See the README for exact version and flag requirements.
 
 ## Observability: worker Pods carry no component labels, on purpose
 
-OpenChoreo attributes logs and metrics by the source Pod's own labels. A
-worker Pod hosts many actors from different components over its life, so
-labeling it with any one component's identity would leak every other
-tenant's data into that component. That's why worker Pods carry no
-OpenChoreo labels. The practical effect today: actor logs and metrics are
-invisible in component-level views rather than misattributed.
+OpenChoreo attributes logs, traces, and metrics by the source Pod's own
+labels. A worker Pod hosts many actors from different components over its
+life, so labeling it with any one component's identity would leak every
+other tenant's data into that component. That's why worker Pods carry no
+OpenChoreo labels.
 
-The fix for both is the same join key: one `ActorTemplate` revision is
-exactly one component × environment, and Substrate already tags its own
-logs and metrics by template. Attributing them into OpenChoreo's views is an
-ingest-time relabeling problem, not a redesign, and isn't wired up yet.
+### Logs: solved for OpenSearch, extensible to the rest
 
-Traces are simpler: correct instrumentation, not infra. Trace context
-already propagates router → actor, and the operator can inject the
-component's identity into the actor's environment. Any actor using a
-standard OTel SDK attributes itself correctly on its own.
+Substrate's own `actorlog` forwarder already writes what's needed: an
+actor's stdout lands on the worker Pod's own stdout as JSON, tagged with
+`ate.atespace` (the cell namespace, `dp-<cpNs>-<project>-<env>-<hash>`) and
+`ate.actor.name` (the operator's own actor identity: `internal/naming`
+names it `<component>-<environment>-a-<hash>` when it knows the component
+and environment, falling back to an opaque `a-<hash>` otherwise). Both are
+regular strings, not something that needs a live lookup to attribute.
+
+`extras/opensearch-fluentbit-addon/` adds two Fluent Bit filters, scoped to
+the actor worker namespace, that parse those fields and set
+`openchoreo_component`/`openchoreo_project`/`openchoreo_environment`, the
+same fields the stock `kubernetes` filter sets from pod labels for a normal
+component. Verified live: a deployed component's logs show up correctly
+attributed in OpenSearch, with zero change to actors that predate this.
+
+The same fix applies the same way to every other log backend OpenChoreo
+supports, just through a different config surface each:
+
+- **`observability-logs-openobserve`**: self-hosted Fluent Bit too, same
+  filter shape as the OpenSearch addon.
+- **`observability-logs-moesif`**: OTel Collector instead of Fluent Bit, so
+  the equivalent is an OTTL `transform` processor, not a Lua filter.
+- **AWS/Azure's cloud-managed log backends**: both their managed agents
+  (the EKS CloudWatch Observability add-on, Azure Monitor's Container
+  Insights) support custom ingest-time config: a Fluent Bit config override
+  and a Data Collection Rule `transformKql`, respectively. Same idea,
+  configured through the cloud's own hook instead of a chart we own.
+- **GCP's**: no override hook on GKE's managed agent. Needs a self-hosted
+  Fluent Bit (same shape as the OpenSearch addon) pointed at Cloud Logging,
+  with the managed agent's own workload-log collection turned off to avoid
+  duplicates.
+
+### Traces: solved
+
+Two separate things, both true today:
+
+- **Context propagation** already worked before any of this: `atenet-router`
+  extracts the inbound `traceparent` for its own spans, and since it's
+  Envoy underneath, headers pass through to the actor unmodified.
+- **Identity enrichment** is now wired up: the `ClusterComponentType`
+  template sets `OTEL_RESOURCE_ATTRIBUTES` on the actor's container from its
+  own `metadata.labels`, at render time. Any actor using a standard OTel SDK
+  with environment-based resource detection picks it up with zero app code
+  changes, the same way platforms generally identify workloads they don't
+  own the source of.
+
+### Metrics: still not sure this one even makes sense
+
+Multiple actors share one worker Pod's resources concurrently, so
+Pod-level CPU/memory (the only thing a normal `kubernetes` filter or
+`PodMonitor` could ever read) isn't just unattributed here, it's actively
+wrong: it's a mix of whichever actors happen to be co-resident at scrape
+time. Substrate does compute real per-actor usage internally and could in
+principle feed it into Prometheus through an OTel Collector hop, but
+whether that's worth building is a genuinely open question, not just
+unfinished work like logs/traces were. Request-level metrics (rate,
+latency, error-rate) are a different story: those flow through the front
+door the same way for every component regardless of backend, so that part
+doesn't have the same problem.
