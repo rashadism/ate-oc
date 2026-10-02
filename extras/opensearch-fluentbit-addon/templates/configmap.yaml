@@ -62,6 +62,7 @@ data:
         Key_Name log
         Parser actorlog_json
         Reserve_Data On
+        Preserve_Key On
 
     [FILTER]
         Name lua

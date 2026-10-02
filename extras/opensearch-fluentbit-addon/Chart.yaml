@@ -2,4 +2,4 @@ apiVersion: v2
 name: opensearch-fluentbit-addon
 description: Attributes actor log lines to openchoreo_component/project/environment in observability-logs-opensearch's Fluent Bit pipeline.
 type: application
-version: 0.1.0
+version: 0.2.0
