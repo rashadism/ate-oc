@@ -69,6 +69,13 @@ openchoreo:
     serviceAccount: cluster-agent-dataplane
   # The substrate-actor ClusterComponentType, a control plane resource;
   # set enabled to false on a data-plane-only install.
+  #
+  # These three are cluster-wide defaults. A DataPlane can override any of them
+  # per DataPlane via its own annotations, without a new Helm release:
+  #   substrate.openchoreo.dev/sandbox-class: microvm
+  #   substrate.openchoreo.dev/sandbox-config-name: microvm-default
+  #   substrate.openchoreo.dev/worker-pool: <value>  # must match a WorkerPool's
+  #     own "substrate.openchoreo.dev/worker-pool" label
   componentType:
     enabled: true
     sandboxClass: gvisor

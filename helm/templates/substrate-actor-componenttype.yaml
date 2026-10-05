@@ -81,11 +81,28 @@ spec:
           namespace: ${metadata.namespace}
           labels: ${metadata.labels}
         spec:
-          sandboxClass: {{ $ct.sandboxClass }}
-          sandboxConfigName: {{ $ct.sandboxConfigName }}
-          {{- with $ct.workerSelector }}
-          workerSelector:
-            matchLabels: {{- toYaml . | nindent 14 }}
+          # A DataPlane's own annotations win over the cluster-wide Helm default,
+          # so one ClusterComponentType install can still vary sandbox/pool choice
+          # per DataPlane (PLAN.md's "pool and class come from DataPlane
+          # annotations, so the PE configures them per data plane").
+          sandboxClass: |
+            ${has(dataplane.annotations) && "substrate.openchoreo.dev/sandbox-class" in dataplane.annotations
+              ? dataplane.annotations["substrate.openchoreo.dev/sandbox-class"]
+              : "{{ $ct.sandboxClass }}"}
+          sandboxConfigName: |
+            ${has(dataplane.annotations) && "substrate.openchoreo.dev/sandbox-config-name" in dataplane.annotations
+              ? dataplane.annotations["substrate.openchoreo.dev/sandbox-config-name"]
+              : "{{ $ct.sandboxConfigName }}"}
+          {{- if $ct.workerSelector }}
+          workerSelector: |
+            ${has(dataplane.annotations) && "substrate.openchoreo.dev/worker-pool" in dataplane.annotations
+              ? {"matchLabels": {"substrate.openchoreo.dev/worker-pool": dataplane.annotations["substrate.openchoreo.dev/worker-pool"]}}
+              : {"matchLabels": {{ $ct.workerSelector | toJson }}}}
+          {{- else }}
+          workerSelector: |
+            ${has(dataplane.annotations) && "substrate.openchoreo.dev/worker-pool" in dataplane.annotations
+              ? {"matchLabels": {"substrate.openchoreo.dev/worker-pool": dataplane.annotations["substrate.openchoreo.dev/worker-pool"]}}
+              : oc_omit()}
           {{- end }}
           resources:
             limits:
