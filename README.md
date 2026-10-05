@@ -13,9 +13,9 @@ Agent Substrate identifies pods with Kubernetes' `PodCertificateRequest`/`Cluste
     --enable-kubernetes-unstable-apis=certificates.k8s.io/v1beta1/podcertificaterequests,certificates.k8s.io/v1beta1/clustertrustbundles
   ```
 - **Auto-upgrade off, and no spot/preemptible nodes, on any node pool that runs workers.** A worker pod's actors get a 30-minute grace window to suspend when their pod is deleted; one still running when that window closes goes to a terminal `CRASHED` state with no recovery path. Auto-upgrade is the main trigger since GKE enables it by default on Google's own schedule, not yours.
-- **Every worker node labeled `ate.dev/substrate-version=<image tag>`** (e.g. `v0.2.0`) before installing Agent Substrate. Its node-level supervisor schedules by this label and nothing applies it automatically:
+- **Every worker node labeled `ate.dev/substrate-version=<image tag>`** (e.g. `v0.3.0`) before installing Agent Substrate. Its node-level supervisor schedules by this label and nothing applies it automatically:
   ```
-  kubectl label node <node-name> ate.dev/substrate-version=v0.2.0
+  kubectl label node <node-name> ate.dev/substrate-version=v0.3.0
   ```
 
 ## Install
@@ -30,7 +30,7 @@ A running OpenChoreo control plane and data plane are a prerequisite. Follow Ope
 
 ```
 helm install substrate oci://ghcr.io/rashadism/substrate/helm/substrate \
-  --version 0.2.0 -n ate-system --create-namespace --set image.tag=v0.2.0
+  --version 0.3.0 -n ate-system --create-namespace --set image.tag=v0.3.0
 ```
 
 ### 3. This operator
@@ -76,7 +76,7 @@ metadata:
   namespace: default
 spec:
   container:
-    image: ghcr.io/rashadism/substrate/demo-counter:v0.2.0
+    image: ghcr.io/rashadism/substrate/demo-counter:v0.3.0
   endpoints:
     http:
       port: 80

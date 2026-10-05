@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/rashadism/ate-oc
-  tag: v0.2.0
+  tag: v0.3.0
   pullPolicy: IfNotPresent
 
 # Snapshot object-store prefix; each atespace gets a sub-path. Required.
