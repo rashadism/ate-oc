@@ -93,7 +93,7 @@ func (r *ActorTemplateReconciler) reconcile(ctx context.Context, at *substratev1
 		setCond(at, CondAccepted, false, "MissingIdentity", err.Error())
 		return ctrl.Result{}, nil
 	}
-	if err := r.recordIdentity(ctx, id); err != nil {
+	if err := r.recordIdentity(ctx, id, at.Namespace); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureAtespace(ctx, at.Namespace); err != nil {

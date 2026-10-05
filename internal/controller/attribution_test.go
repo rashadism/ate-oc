@@ -13,12 +13,21 @@ import (
 
 const attributionNS = "openchoreo-observability-plane"
 
+// readableID is what the reconciler actually computes from
+// withReadableLabels' labels: the package-level id fixture's UIDs, plus the
+// readable names and project/namespace fields set below.
+var readableID = naming.Identity{
+	ComponentUID: id.ComponentUID, EnvironmentUID: id.EnvironmentUID,
+	Component: "counter-x", Environment: "development",
+	ProjectUID: "proj-uid", Project: "default", Namespace: "default",
+}
+
 func withReadableLabels(at *substratev1alpha1.ActorTemplate) *substratev1alpha1.ActorTemplate {
-	at.Labels[naming.LabelComponentName] = "counter-x"
-	at.Labels[naming.LabelEnvironmentName] = "development"
-	at.Labels[naming.LabelProjectUID] = "proj-uid"
-	at.Labels[naming.LabelProjectName] = "default"
-	at.Labels[naming.LabelNamespace] = "default"
+	at.Labels[naming.LabelComponentName] = readableID.Component
+	at.Labels[naming.LabelEnvironmentName] = readableID.Environment
+	at.Labels[naming.LabelProjectUID] = readableID.ProjectUID
+	at.Labels[naming.LabelProjectName] = readableID.Project
+	at.Labels[naming.LabelNamespace] = readableID.Namespace
 	return at
 }
 
@@ -32,7 +41,7 @@ func (e *env) attributionData() map[string]string {
 	return cm.Data
 }
 
-func TestRecordIdentityPublishesNameToUID(t *testing.T) {
+func TestRecordIdentityPublishesByOpaqueKey(t *testing.T) {
 	e := newEnv(t, true, withReadableLabels(actorTemplate()))
 	e.r.AttributionNamespace = attributionNS
 	if _, err := e.reconcile(); err != nil {
@@ -40,10 +49,11 @@ func TestRecordIdentityPublishesNameToUID(t *testing.T) {
 	}
 	data := e.attributionData()
 	want := map[string]string{
-		"component.default.development.counter-x": id.ComponentUID,
-		"project.default":                         "proj-uid",
-		"environment.development":                 id.EnvironmentUID,
-		"namespace.default":                       "default",
+		attributionKey("environment", "development"):        id.EnvironmentUID,
+		attributionKey("project", "default"):                "proj-uid",
+		attributionKey("namespace", "default"):              "default",
+		attributionKey("atespace", ns):                      "default|development",
+		attributionKey("actorname", readableID.ActorName()): "counter-x|" + id.ComponentUID,
 	}
 	for k, v := range want {
 		if data[k] != v {
@@ -95,12 +105,13 @@ func TestRecordIdentitySelfHealsDeletedConfigMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := e.attributionData()
-	if data["component.default.development.counter-x"] != id.ComponentUID {
+	actorKey := attributionKey("actorname", readableID.ActorName())
+	if data[actorKey] != "counter-x|"+id.ComponentUID {
 		t.Fatalf("expected the entry to come back after one reconcile, got %v", data)
 	}
 }
 
-func TestFinalizeRemovesComponentEntryOnly(t *testing.T) {
+func TestFinalizeRemovesActorNameEntryOnly(t *testing.T) {
 	e := newEnv(t, true, withReadableLabels(actorTemplate()))
 	e.r.AttributionNamespace = attributionNS
 	if _, err := e.reconcile(); err != nil {
@@ -113,13 +124,17 @@ func TestFinalizeRemovesComponentEntryOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := e.attributionData()
-	if _, ok := data["component.default.development.counter-x"]; ok {
-		t.Fatal("component entry should be removed once its ActorTemplate is deleted")
+	actorKey := attributionKey("actorname", readableID.ActorName())
+	if _, ok := data[actorKey]; ok {
+		t.Fatal("actor-name entry should be removed once its ActorTemplate is deleted")
 	}
-	if data["environment.development"] != id.EnvironmentUID {
+	if data[attributionKey("environment", "development")] != id.EnvironmentUID {
 		t.Fatal("environment entry should survive one component's deletion")
 	}
-	if data["project.default"] != "proj-uid" {
+	if data[attributionKey("project", "default")] != "proj-uid" {
 		t.Fatal("project entry should survive one component's deletion")
+	}
+	if data[attributionKey("atespace", ns)] != "default|development" {
+		t.Fatal("atespace entry should survive one component's deletion")
 	}
 }

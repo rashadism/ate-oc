@@ -14,10 +14,11 @@ import (
 	"github.com/rashadism/ate-oc/internal/naming"
 )
 
-// AttributionConfigMapName is the shared, cross-namespace ConfigMap that
-// publishes component/project/environment name->UID mappings for log
-// backends that can only recover names (not UIDs) from an actor's log
-// identity. See SCRATCHPAD.md "Logs - component-UID attribution".
+// AttributionConfigMapName is the shared, cross-namespace ConfigMap that lets
+// a log backend resolve an actor's identity without parsing it: entries are
+// keyed by the exact atespace or actor-name string already present on a log
+// line, never by a value split out of either. See SCRATCHPAD.md "Logs -
+// component-UID attribution".
 const AttributionConfigMapName = "actor-identity-attribution"
 
 // attributionKey builds a ConfigMap data key safe to merge-patch
@@ -27,34 +28,45 @@ func attributionKey(kind string, parts ...string) string {
 	return kind + "." + strings.Join(parts, ".")
 }
 
-// recordIdentity publishes this identity's name->UID entries into the shared
-// attribution ConfigMap, merge-patching only its own keys so concurrent
-// reconciles of other components never race. A no-op when AttributionNamespace
-// isn't configured, or the identity has no readable names yet (nothing a log
-// backend could look up by name in that case anyway).
-func (r *ActorTemplateReconciler) recordIdentity(ctx context.Context, id naming.Identity) error {
+// recordIdentity publishes this identity into the shared attribution
+// ConfigMap, merge-patching only its own keys so concurrent reconciles of
+// other components never race. A no-op when AttributionNamespace isn't
+// configured, or the identity has no readable names yet.
+//
+// Keys are the exact, opaque strings a log backend already has on hand --
+// the full atespace and the full actor name -- never a value split out of
+// either. A log backend has no reliable way to split "dp-<cpNs>-<project>-
+// <environment>-<hash>" or "<component>-<environment>-a-<hash>" into parts:
+// component, project, and environment names are themselves free-form
+// Kubernetes names that may contain hyphens (OpenChoreo does not forbid
+// it), so no delimiter choice is unambiguous. Keying by the whole string
+// instead of a parsed piece of it removes the need to parse at all.
+func (r *ActorTemplateReconciler) recordIdentity(ctx context.Context, id naming.Identity, atespace string) error {
 	if r.AttributionNamespace == "" || id.Component == "" || id.Environment == "" {
 		return nil
 	}
 	entries := map[string]string{
 		attributionKey("environment", id.Environment): id.EnvironmentUID,
+		attributionKey("actorname", id.ActorName()):   id.Component + "|" + id.ComponentUID,
 	}
 	if id.Project != "" {
 		entries[attributionKey("project", id.Project)] = id.ProjectUID
-		entries[attributionKey("component", id.Project, id.Environment, id.Component)] = id.ComponentUID
 		if id.Namespace != "" {
 			entries[attributionKey("namespace", id.Project)] = id.Namespace
+		}
+		if atespace != "" {
+			entries[attributionKey("atespace", atespace)] = id.Project + "|" + id.Environment
 		}
 	}
 	return r.patchAttribution(ctx, entries)
 }
 
-// removeIdentity drops this identity's component entry on ActorTemplate
-// deletion. Project/environment entries are left alone since other
+// removeIdentity drops this identity's actor-name entry on ActorTemplate
+// deletion. Environment/project/atespace entries are left alone since other
 // components in the same scope still need them; an orphaned entry is
 // otherwise harmless, never looked up again once nothing recreates it.
 func (r *ActorTemplateReconciler) removeIdentity(ctx context.Context, id naming.Identity) error {
-	if r.AttributionNamespace == "" || id.Component == "" || id.Environment == "" || id.Project == "" {
+	if r.AttributionNamespace == "" || id.Component == "" || id.Environment == "" {
 		return nil
 	}
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
@@ -63,7 +75,7 @@ func (r *ActorTemplateReconciler) removeIdentity(ctx context.Context, id naming.
 	if err := r.Get(ctx, client.ObjectKeyFromObject(cm), cm); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	key := attributionKey("component", id.Project, id.Environment, id.Component)
+	key := attributionKey("actorname", id.ActorName())
 	if _, ok := cm.Data[key]; !ok {
 		return nil
 	}
